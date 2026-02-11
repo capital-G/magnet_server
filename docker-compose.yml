@@ -1,0 +1,37 @@
+volumes:
+  db:
+  media:
+
+services:
+  baryon:
+    build: src
+    depends_on:
+      - database
+    environment:
+      - DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE:-magnet.settings}
+      - DJANGO_SECRET_KEY="a-good-secret-key"
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+    volumes:
+      - media:/app/media
+    ports:
+      - ${BARYON_PORT:-8000}:8000
+
+  database:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+    volumes:
+      - db:/var/lib/postgresql/data
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - media:/usr/share/nginx/html/media

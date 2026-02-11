@@ -1,3 +1,5 @@
+src/magnet/media
+
 .venv/
 .idea/
 
@@ -223,7 +225,8 @@ __marimo__/
 __MACOSX/
 .AppleDouble
 .LSOverride
-Icon[]
+Icon[
+]
 
 # Thumbnails
 ._*
