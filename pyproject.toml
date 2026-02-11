@@ -20,6 +20,9 @@ dependencies = [
 DJANGO_SETTINGS_MODULE = "magnet.settings"
 python_files = ["**/tests/*.py"]
 
+[tool.isort]
+profile = "black"
+
 [tool.mypy]
 plugins = [
     "mypy_django_plugin.main",

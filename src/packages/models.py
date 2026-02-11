@@ -295,7 +295,8 @@ class Asset(models.Model):
 
     class ServerAbiVersion(models.IntegerChoices):
         """Server extensions need to be compiled against a specific server API version.
-        See <https://github.com/supercollider/supercollider/blob/217e94c53fbb82658e99fa734fd0d857eb9897c4/include/plugin_interface/SC_InterfaceTable.h#L26>"""
+        See <https://github.com/supercollider/supercollider/blob/217e94c53fbb82658e99fa734fd0d857eb9897c4/include/plugin_interface/SC_InterfaceTable.h#L26>
+        """
 
         version_1 = 1  # 3.5 via 55cc46e (2011)
         version_2 = 2  # 3.9 via 0f39fea (2012)
