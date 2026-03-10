@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 from typing import List
 
@@ -187,4 +188,4 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # this must point to a bare git repo!
-GIT_INDEX_REPO_PATH = Path("/Users/scheiba/tmp/foo/baryon_index.git")
+GIT_INDEX_REPO_PATH = Path(os.environ["GIT_INDEX_REPO_PATH"])
