@@ -429,7 +429,7 @@ class Asset(models.Model):
         constraints = [
             models.CheckConstraint(
                 name="mandatory_tuples",
-                check=(
+                condition=(
                     Q(asset_format="server_extension_binary")
                     & Q(operating_system__isnull=False)
                     & Q(server_abi_version__isnull=False)
