@@ -1,0 +1,31 @@
+{% with latest=project.releases.all.0 %}
+<a class="box" href="{% url 'project-detail' project.slug %}">
+    <div class="columns is-vcentered">
+
+        <div class="column">
+            <p class="mb-1">
+                <strong class="is-size-5">{{ project.name }}</strong>
+                {% if latest %}
+                    <span class="has-text-grey ml-2">v{{ latest.version }}</span>
+                {% endif %}
+            </p>
+            {% if latest.summary %}
+                <p class="has-text-grey mb-3">{{ latest.summary }}</p>
+            {% endif %}
+            {% if latest.repository_url %}
+                <span class="has-text-link is-size-7">Repository</span>
+            {% endif %}
+        </div>
+
+        <div class="column is-narrow has-text-right">
+            <p class="has-text-grey is-size-7 mb-1">
+                <span class="tag is-light">{{ project.project_type }}</span>
+            </p>
+            <p class="has-text-grey is-size-7">
+                Updated: {{ project.last_update|timesince }} ago
+            </p>
+        </div>
+
+    </div>
+</a>
+{% endwith %}

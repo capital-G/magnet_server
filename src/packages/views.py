@@ -1,4 +1,4 @@
-from django.views.generic import ListView, TemplateView
+from django.views.generic import DetailView, ListView, TemplateView
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
@@ -42,6 +42,14 @@ class ProjectsList(ListView):
         if self.request.htmx:
             return ["packages/project_list.html#list"]
         return ["packages/project_list.html"]
+
+
+class ProjectDetail(DetailView):
+    model = Project
+    context_object_name = "project"
+    queryset = Project.objects.all()
+
+    template_name = "packages/project_detail.html"
 
 
 class ProjectViewSet(viewsets.ViewSet):

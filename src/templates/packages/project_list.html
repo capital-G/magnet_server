@@ -9,7 +9,7 @@
     <div class="container">
 
         <form method="get" class="mb-5">
-            <div class="field has-addons">
+            <div class="field has-addons container">
                 <div class="control is-expanded">
                     <input class="input" type="search" name="q" value="{{ request.GET.q }}"
                            placeholder="Search project&hellip;"
@@ -28,7 +28,9 @@
             {% partialdef list inline %}
                 <ul>
                     {% for project in projects %}
-                        <li>{{ project.name }}</li>
+                        <li>
+                            {% include "packages/project_card.html" %}
+                        </li>
                     {% empty %}
                         <li>Sorry, no project found</li>
                     {% endfor %}
