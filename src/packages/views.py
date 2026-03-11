@@ -10,7 +10,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from packages.models import Project
+from packages.models import Project, Release
 from packages.serializers import (
     AssetUploadSerializer,
     ProjectDetailSerializer,
@@ -24,6 +24,7 @@ class HomeView(TemplateView):
     def get_context_data(self, **kwargs):
         context = super(HomeView, self).get_context_data(**kwargs)
         context["project_count"] = Project.objects.all().count()
+        context["release_count"] = Release.objects.all().count()
         return context
 
 
@@ -33,9 +34,9 @@ class ProjectsList(ListView):
     context_object_name = "projects"
 
     def get_queryset(self):
-        qs = Project.objects.all()
-        if self.request.GET.get("q"):
-            qs = qs.filter(name__icontains=self.request.GET.get("q"))
+        qs = Project.objects.prefetch_related("releases")
+        if q := self.request.GET.get("q", "").strip():
+            qs = qs.filter(name__icontains=q)
         return qs
 
     def get_template_names(self):
@@ -47,9 +48,26 @@ class ProjectsList(ListView):
 class ProjectDetail(DetailView):
     model = Project
     context_object_name = "project"
-    queryset = Project.objects.all()
-
     template_name = "packages/project_detail.html"
+
+    def get_queryset(self):
+        return Project.objects.prefetch_related(
+            "releases",
+            "releases__dependencies_from__dependency",
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["release"] = None
+        if version := self.request.GET.get("version"):
+            context["release"] = self.object.releases.filter(
+                version=version,
+            ).first()
+        if not context["release"]:
+            context["release"] = (
+                self.object.releases.first() if self.object.releases.exists() else None
+            )
+        return context
 
 
 class ProjectViewSet(viewsets.ViewSet):

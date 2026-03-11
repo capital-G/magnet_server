@@ -1,0 +1,7 @@
+{% load markdownify %}
+
+{% if release.description %}
+    <div class="content text">{{ release.description | markdownify }}</div>
+{% else %}
+    <p class="has-text-grey">No description provided.</p>
+{% endif %}

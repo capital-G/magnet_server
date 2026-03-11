@@ -1,0 +1,26 @@
+<table class="table is-fullwidth is-hoverable">
+    <thead>
+        <tr>
+            <th>Version</th>
+            <th>Released</th>
+            <th>Notes</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for release in project.releases.all %}
+        <tr>
+            <td>
+                <a href="{% url 'project-detail' project.slug %}?version={{ release.version }}"><strong>{{ release.version }}</strong></a>
+                {% if release.is_prerelease %}
+                    <span class="tag is-warning is-light is-small ml-1">pre</span>
+                {% endif %}
+                {% if release.yanked %}
+                    <span class="tag is-danger is-light is-small ml-1">yanked</span>
+                {% endif %}
+            </td>
+            <td class="has-text-grey is-size-7">{{ release.created|timesince }} ago</td>
+            <td class="has-text-grey is-size-7">{{ release.release_note|truncatechars:80 }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

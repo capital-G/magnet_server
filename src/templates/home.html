@@ -5,7 +5,7 @@
     <div class="hero-body">
         <div class="container has-text-centered">
             <h1 class="title is-2">The SuperCollider package registry</h1>
-            <p class="subtitle is-5 mb-5">{{ project_count }} package{{ project_count|pluralize }} available</p>
+            <p class="subtitle is-5 mb-5">{{ project_count }} package{{ project_count|pluralize }} and {{ release_count }} release{{ release_count|pluralize }} available</p>
             <form action="{% url 'projects-list' %}" method="get">
                 <div class="field has-addons has-addons-centered">
                     <div class="control is-expanded" style="max-width: 520px;">

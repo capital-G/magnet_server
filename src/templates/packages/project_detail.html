@@ -1,7 +1,65 @@
 {% extends "base.html" %}
 
 {% block title %}{{ project.name }} - magnet{% endblock %}
+{% block description %}{{ release.summary }}{% endblock %}
 
 {% block content %}
-    <h1>{{ project.name }}</h1>
+<div class="has-background-light py-5">
+    <div class="container">
+        <p class="mb-2">
+            <strong class="is-size-3">{{ project.name }}</strong>
+            {% if release %}
+                <span class="has-text-grey is-size-4 ml-2">v{{ release.version }}</span>
+                {% if release.is_prerelease %}
+                    <span class="tag is-warning is-light ml-2">pre-release</span>
+                {% endif %}
+                {% if release.yanked %}
+                    <span class="tag is-danger is-light ml-2">yanked</span>
+                {% endif %}
+            {% endif %}
+        </p>
+        {% if release.summary %}
+            <p class="has-text-grey-dark mb-3">{{ release.summary }}</p>
+        {% endif %}
+        <span class="tag is-link is-light">{{ project.project_type }}</span>
+    </div>
+</div>
+
+<div class="container mt-4" x-data="{ tab: 'description' }">
+    <div class="tabs">
+        <ul>
+            <li :class="{ 'is-active': tab === 'description' }">
+                <a @click.prevent="tab = 'description'">Description</a>
+            </li>
+            <li :class="{ 'is-active': tab === 'versions' }">
+                <a @click.prevent="tab = 'versions'">
+                    {{ project.releases.count }} Version{{ project.releases.count|pluralize }}
+                </a>
+            </li>
+            <li :class="{ 'is-active': tab === 'deps' }">
+                <a @click.prevent="tab = 'deps'">Dependencies</a>
+            </li>
+        </ul>
+    </div>
+
+    <div class="columns">
+        <div class="column">
+            <div x-show="tab === 'description'">
+                {% include "packages/project_description.html" %}
+            </div>
+
+            <div x-show="tab === 'versions'" x-cloak>
+                {% include "packages/project_versions.html" %}
+            </div>
+
+            <div x-show="tab === 'deps'" x-cloak>
+                {% include "packages/project_dependencies.html" %}
+            </div>
+        </div>
+
+        <div class="column is-one-quarter">
+            {% include "packages/project_sidebar.html" %}
+        </div>
+    </div>
+</div>
 {% endblock %}

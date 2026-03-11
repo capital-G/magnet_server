@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "allauth.account",
     "django_htmx",
+    "markdownify.apps.MarkdownifyConfig",
     "packages.apps.PackagesConfig",
     "users.apps.UsersConfig",
 ]
@@ -191,3 +192,44 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # this must point to a bare git repo!
 GIT_INDEX_REPO_PATH = Path(os.environ["GIT_INDEX_REPO_PATH"])
+
+# Markdown
+MARKDOWNIFY = {
+    "default": {
+        "WHITELIST_TAGS": [
+            "a",
+            "abbr",
+            "acronym",
+            "b",
+            "blockquote",
+            "em",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "i",
+            "li",
+            "ol",
+            "p",
+            "strong",
+            "ul",
+            "table",
+            "thead",
+            "tbody",
+            "th",
+            "tr",
+            "td",
+        ],
+        "MARKDOWN_EXTENSIONS": [
+            "markdown.extensions.extra",
+            "markdown.extensions.nl2br",
+        ],
+        "LINKIFY_TEXT": {
+            "PARSE_URLS": True,
+            "PARSE_EMAIL": True,
+        },
+        "BLEACH": False,
+    }
+}

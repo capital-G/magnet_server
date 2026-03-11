@@ -1,0 +1,58 @@
+<div class="box">
+    <p class="has-text-weight-bold mb-3">Metadata</p>
+    <p class="is-size-7 mb-2">
+        <span class="has-text-grey">Updated</span><br>
+        {{ project.last_update|timesince }} ago
+    </p>
+    {% if release.license %}
+    <p class="is-size-7 mb-2">
+        <span class="has-text-grey">License</span><br>
+        {{ release.license }}
+    </p>
+    {% endif %}
+    <p class="is-size-7 mb-2">
+        <span class="has-text-grey">Type</span><br>
+        {{ project.project_type }}
+    </p>
+    <p class="is-size-7">
+        <span class="has-text-grey">Owner</span><br>
+        {{ project.owner }}
+    </p>
+</div>
+
+{% if release %}
+<div class="box">
+    <p class="has-text-weight-bold mb-3">Install</p>
+    <p class="is-size-7 has-text-grey mb-2">Magnet CLI:</p>
+    <pre class="is-size-7" style="background:#f5f5f5; padding:.75rem; border-radius:4px; overflow-x:auto;">magnet install {{project.slug }}</pre>
+</div>
+{% endif %}
+
+{% if release.repository_url or release.home_page_url or release.bug_tracker_url %}
+<div class="box">
+    {% if release.repository_url %}
+    <p class="mb-3">
+        <span class="has-text-weight-bold">Repository</span><br>
+        <a class="is-size-7" href="{{ release.repository_url }}" rel="noopener noreferrer">
+            {{ release.repository_url|truncatechars:40 }}
+        </a>
+    </p>
+    {% endif %}
+    {% if release.home_page_url %}
+    <p class="mb-3">
+        <span class="has-text-weight-bold">Homepage</span><br>
+        <a class="is-size-7" href="{{ relesae.home_page_url }}" rel="noopener noreferrer">
+            {{ release.home_page_url|truncatechars:40 }}
+        </a>
+    </p>
+    {% endif %}
+    {% if release.bug_tracker_url %}
+    <p>
+        <span class="has-text-weight-bold">Bug tracker</span><br>
+        <a class="is-size-7" href="{{ release.bug_tracker_url }}" rel="noopener noreferrer">
+            {{ release.bug_tracker_url|truncatechars:40 }}
+        </a>
+    </p>
+    {% endif %}
+</div>
+{% endif %}

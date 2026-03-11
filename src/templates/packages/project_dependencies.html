@@ -1,0 +1,25 @@
+{% if release %}
+    {% with deps=release.dependencies_from.all %}
+    {% if deps %}
+        <table class="table is-fullwidth is-hoverable">
+            <thead>
+                <tr><th>Package</th><th>Constraint</th></tr>
+            </thead>
+            <tbody>
+                {% for dep in deps %}
+                <tr>
+                    <td>
+                        <a href="{% url 'project-detail' dep.dependency.slug %}">
+                            {{ dep.dependency.name }}
+                        </a>
+                    </td>
+                    <td class="has-text-grey is-size-7">{{ dep.constraint }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="has-text-grey">No dependencies.</p>
+    {% endif %}
+    {% endwith %}
+{% endif %}
