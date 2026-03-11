@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Browse projects - magnet
+{% endblock %}
+
+{% block content %}
+<section class="section">
+    <div class="container">
+
+        <form method="get" class="mb-5">
+            <div class="field has-addons">
+                <div class="control is-expanded">
+                    <input class="input" type="search" name="q" value="{{ request.GET.q }}"
+                           placeholder="Search project&hellip;"
+                           hx-get="{% url 'projects-list' %}"
+                           hx-trigger="keyup changed delay:300ms"
+                           hx-target="#results"
+                           hx-include="[name='q']">
+                </div>
+                <div class="control">
+                    <button class="button is-link" type="submit">Search</button>
+                </div>
+            </div>
+        </form>
+
+        <div id="results">
+            {% partialdef list inline %}
+                <ul>
+                    {% for project in projects %}
+                        <li>{{ project.name }}</li>
+                    {% empty %}
+                        <li>Sorry, no project found</li>
+                    {% endfor %}
+                </ul>
+            {% endpartialdef %}
+        </div>
+    </div>
+</section>
+{% endblock %}

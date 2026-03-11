@@ -1,0 +1,18 @@
+:root {
+    --bulma-link: #333;
+    --bulma-hero-h: var(--bulma-link);
+}
+
+.hero {
+    background-color: var(--bulma-link) !important;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+main {
+    flex: 1;
+}

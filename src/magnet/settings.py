@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "drf_spectacular",
     "allauth.account",
+    "django_htmx",
     "packages.apps.PackagesConfig",
     "users.apps.UsersConfig",
 ]
@@ -57,8 +58,9 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    # magnet
+    # 3rd party
     "allauth.account.middleware.AccountMiddleware",
+    "django_htmx.middleware.HtmxMiddleware",
 ]
 
 ROOT_URLCONF = "magnet.urls"
@@ -179,7 +181,7 @@ USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
-
+STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_URL = "static/"
 
 # Default primary key field type

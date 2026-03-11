@@ -1,0 +1,51 @@
+{% load static i18n django_htmx %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>{% block title %}magnet{% endblock %}</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{% block description %}The SuperCollider package registry{% endblock %}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+    <link rel="stylesheet" href="{% static "style.css" %}">
+</head>
+<body hx-headers='{"x-csrftoken": "{{ csrf_token }}"}'>
+
+
+<nav class="navbar is-link" role="navigation" aria-label="main navigation">
+    <div class="container">
+        <div class="navbar-brand">
+            <a class="navbar-item has-text-weight-bold is-size-5" href="{% url 'home' %}">magnet</a>
+        </div>
+        <div class="navbar-menu">
+            <div class="navbar-start">
+                <a class="navbar-item" href="{% url 'projects-list' %}">Browse</a>
+            </div>
+            <div class="navbar-end">
+                {% if user.is_authenticated %}
+                    <span class="navbar-item has-text-light">{{ user.email }}</span>
+                    <a class="navbar-item" href="{% url 'account_logout' %}">Sign out</a>
+                {% else %}
+                    <a class="navbar-item" href="{% url 'account_login' %}">Sign in</a>
+                    <div class="navbar-item">
+                        <a class="button is-light is-small" href="{% url 'account_signup' %}">Register</a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</nav>
+
+<main>
+    {% block content %}{% endblock %}
+</main>
+
+<footer class="footer py-5 mt-6">
+    <div class="container">
+        <p class="has-text-grey is-size-7">magnet: The SuperCollider package registry</p>
+    </div>
+</footer>
+
+</body>
+</html>

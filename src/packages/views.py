@@ -1,3 +1,4 @@
+from django.views.generic import ListView, TemplateView
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
@@ -15,6 +16,32 @@ from packages.serializers import (
     ProjectDetailSerializer,
     ProjectSerializer,
 )
+
+
+class HomeView(TemplateView):
+    template_name = "home.html"
+
+    def get_context_data(self, **kwargs):
+        context = super(HomeView, self).get_context_data(**kwargs)
+        context["project_count"] = Project.objects.all().count()
+        return context
+
+
+class ProjectsList(ListView):
+    model = Project
+    paginate_by = 50
+    context_object_name = "projects"
+
+    def get_queryset(self):
+        qs = Project.objects.all()
+        if self.request.GET.get("q"):
+            qs = qs.filter(name__icontains=self.request.GET.get("q"))
+        return qs
+
+    def get_template_names(self):
+        if self.request.htmx:
+            return ["packages/project_list.html#list"]
+        return ["packages/project_list.html"]
 
 
 class ProjectViewSet(viewsets.ViewSet):
