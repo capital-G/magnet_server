@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}{{ asset.identifier }} &mdash; magnet{% endblock %}
+{% block description %}{{ asset.get_asset_format_display }} asset for {{ asset.release.project.name }} v{{ asset.release.version }}{% endblock %}
+
+{% block content %}
+
+<div class="has-background-light py-5">
+    <div class="container">
+        <p class="is-size-7 has-text-grey mb-2">
+            <a href="{% url 'project-detail' asset.release.project.slug %}">{{ asset.release.project.name }}</a> /
+            <a href="{% url 'project-detail' asset.release.project.slug %}?version={{ asset.release.version }}">{{ asset.release.version }}</a>
+        </p>
+        <p class="mb-2">
+            <strong class="is-size-4" style="font-family:monospace;">{{ asset.identifier }}</strong>
+        </p>
+        <div class="tags">
+            <span class="tag is-link is-light">{{ asset.get_asset_format_display }}</span>
+            {% if asset.operating_system %}
+                <span class="tag is-light">{{ asset.operating_system }}</span>
+            {% endif %}
+            {% if asset.architecture %}
+                <span class="tag is-light">{{ asset.architecture }}</span>
+            {% endif %}
+            {% if asset.server_abi_version %}
+                <span class="tag is-light">ABI {{ asset.server_abi_version }}</span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="container mt-5">
+    <div class="columns">
+
+        <div class="column">
+            <div class="box">
+                <p class="has-text-weight-bold mb-3">Download</p>
+                <a class="button is-link" href="{{ asset.file.url }}">
+                    {{ asset.identifier }}.tar.gz
+                </a>
+                {% if asset.comment %}
+                    <p class="has-text-grey is-size-7 mt-3">{{ asset.comment }}</p>
+                {% endif %}
+            </div>
+
+            <div class="box">
+                <p class="has-text-weight-bold mb-3">Checksum</p>
+                <p class="is-size-7 has-text-grey mb-1">SHA-256</p>
+                <pre style="background:#f5f5f5; padding:.75rem; border-radius:4px; overflow-x:auto; font-size:.75rem;">{{ asset.sha256_checksum }}</pre>
+            </div>
+        </div>
+
+        <div class="column is-one-quarter">
+            <div class="box">
+                <p class="has-text-weight-bold mb-3">Metadata</p>
+                <p class="is-size-7 mb-2">
+                    <span class="has-text-grey">Uploaded</span><br>
+                    {{ asset.created|timesince }} ago
+                </p>
+                <p class="is-size-7 mb-2">
+                    <span class="has-text-grey">Uploader</span><br>
+                    {{ asset.uploader }}
+                </p>
+                {% if asset.uploaded_via %}
+                <p class="is-size-7 mb-2">
+                    <span class="has-text-grey">Client</span><br>
+                    {{ asset.uploaded_via }}
+                </p>
+                {% endif %}
+                <p class="is-size-7">
+                    <span class="has-text-grey">Release</span><br>
+                    <a href="{% url 'project-detail' asset.release.project.slug %}?version={{ asset.release.version }}">
+                        {{ asset.release.project.name }} v{{ asset.release.version }}
+                    </a>
+                </p>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+{% endblock %}

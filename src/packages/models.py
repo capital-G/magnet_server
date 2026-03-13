@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import os
 import uuid
 
 import semver
@@ -404,6 +405,10 @@ class Asset(models.Model):
             "The server runtime this extension is targeting. Leave empty for Quarks."
         ),
     )
+
+    @property
+    def filename(self):
+        return os.path.basename(self.file.name)
 
     @property
     def identifier(self) -> str:

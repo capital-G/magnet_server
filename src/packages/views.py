@@ -10,7 +10,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from packages.models import Project, Release
+from packages.models import Asset, Project, Release
 from packages.serializers import (
     AssetUploadSerializer,
     ProjectDetailSerializer,
@@ -53,6 +53,7 @@ class ProjectDetail(DetailView):
     def get_queryset(self):
         return Project.objects.prefetch_related(
             "releases",
+            "releases__assets",
             "releases__dependencies_from__dependency",
         )
 
@@ -68,6 +69,16 @@ class ProjectDetail(DetailView):
                 self.object.releases.first() if self.object.releases.exists() else None
             )
         return context
+
+
+class AssetDetail(DetailView):
+    model = Asset
+    context_object_name = "asset"
+    template_name = "packages/asset_detail.html"
+    pk_url_kwarg = "uuid"
+
+    def get_queryset(self):
+        return Asset.objects.select_related("release__project", "uploader")
 
 
 class ProjectViewSet(viewsets.ViewSet):
