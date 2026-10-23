@@ -323,7 +323,7 @@ class Migration(migrations.Migration):
                         help_text="The uploaded file in .tar.gz format",
                         max_length=512,
                         upload_to=packages.models.asset_upload_to,
-                        validators=[packages.models.validate_tar_gz_name],
+                        validators=[packages.validators.validate_artifact_archive],
                     ),
                 ),
                 (

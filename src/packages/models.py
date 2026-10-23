@@ -12,6 +12,7 @@ from django.utils.translation import gettext_lazy as _
 from packages.validators import (
     normalize_name,
     parse_version,
+    validate_artifact_archive,
     validate_artifact_tag,
     validate_name,
     validate_version,
@@ -51,11 +52,6 @@ def asset_upload_to(asset: "Asset", filename: str) -> str:
         abi=asset.abi,
         platform=asset.platform,
     )
-
-
-def validate_tar_gz_name(file: models.FileField) -> None:
-    if not file.name or not file.name.endswith(".tar.gz"):
-        raise ValidationError(_("File must be a .tar.gz"))
 
 
 class Project(models.Model):
@@ -391,8 +387,8 @@ class Asset(models.Model):
     file = models.FileField(
         max_length=512,
         upload_to=asset_upload_to,
-        validators=[validate_tar_gz_name],
-        help_text=_("The uploaded file in .tar.gz format"),
+        validators=[validate_artifact_archive],
+        help_text=_("The artifact as .tar.gz, stored at its download path"),
     )
 
     sha256_checksum = models.CharField(
@@ -483,6 +479,16 @@ class Asset(models.Model):
             raise ValidationError(
                 _("A quark has a single artifact with abi and platform 'any'.")
             )
+        # a new upload must not replace an artifact, e.g. of a deleted asset (D2.3)
+        if self.release_id and self.file and not self.file._committed:
+            path = asset_upload_to(self, self.file.name)
+            if self.file.storage.exists(path):
+                raise ValidationError(
+                    {
+                        "file": _("The artifact %(path)s already exists.")
+                        % {"path": path}
+                    }
+                )
 
     @property
     def filename(self) -> str:

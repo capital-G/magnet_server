@@ -85,9 +85,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "magnet.wsgi.application"
 
-MEDIA_ROOT = str(BASE_DIR / "media")
-MEDIA_URL = "/media/"
-
 REST_FRAMEWORK = {
     # Use Django's standard `django.contrib.auth` permissions,
     # or allow read-only access for unauthenticated users.
@@ -187,8 +184,9 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 STORAGES = {
+    # artifacts, stored at their download path below MAGNET_ARTIFACTS_ROOT
     "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "BACKEND": "packages.storage.ArtifactStorage",
     },
     # Deployments (docker, prod) use whitenoise's compressed manifest storage,
     # which needs a `collectstatic` run before any template can be rendered.

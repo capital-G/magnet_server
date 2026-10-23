@@ -54,4 +54,5 @@ urlpatterns = [
 ]
 
 if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    # artifact downloads for runserver; deployments serve them via nginx
+    urlpatterns += static("dl/", document_root=settings.MAGNET_ARTIFACTS_ROOT / "dl")

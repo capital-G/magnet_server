@@ -1,9 +1,14 @@
 """Rules shared with the magnet CLI (`../magnet_cli`), which parses everything the
 server writes into the index. Keep them in sync with the CLI, not the other way round."""
 
+import gzip
 import re
+import tarfile
+import zlib
+from pathlib import PurePosixPath
 
 from django.core.exceptions import ValidationError
+from django.core.files import File
 from django.utils.translation import gettext_lazy as _
 
 # same as `MagnetManifestV1::is_valid_name` of the CLI
@@ -65,3 +70,43 @@ def validate_version_req(value: str) -> None:
 def validate_artifact_tag(value: str) -> None:
     if not ARTIFACT_TAG_RE.match(value):
         raise ValidationError(_("Must only contain lowercase letters, digits and '_'."))
+
+
+def validate_artifact_archive(file: File) -> None:
+    """An artifact must be a gzip'd tar which the CLI can extract as is
+    (`packaging/compression.rs`): only files and directories, with relative paths
+    that stay within the package, i.e. no absolute paths, no `..` and no links."""
+    file.open("rb")
+    try:
+        # Reading tar entries stops at the end-of-archive marker, so decompress
+        # the whole stream first, which also checks the gzip checksum and length.
+        with gzip.GzipFile(fileobj=file, mode="rb") as stream:
+            while stream.read(1 << 16):
+                pass
+        file.seek(0)
+
+        entries = 0
+        with tarfile.open(fileobj=file, mode="r|gz") as archive:
+            for member in archive:
+                entries += 1
+                path = PurePosixPath(member.name)
+                if path.is_absolute() or ".." in path.parts:
+                    raise ValidationError(
+                        _(
+                            "The archive contains %(path)s, which points outside of the package."
+                        ),
+                        params={"path": member.name},
+                    )
+                if not (member.isfile() or member.isdir()):
+                    raise ValidationError(
+                        _(
+                            "The archive contains %(path)s, which is neither a file nor a directory."
+                        ),
+                        params={"path": member.name},
+                    )
+    except (tarfile.TarError, EOFError, OSError, zlib.error) as e:
+        raise ValidationError(_("The file is not a valid .tar.gz archive.")) from e
+    finally:
+        file.seek(0)
+    if not entries:
+        raise ValidationError(_("The archive is empty."))

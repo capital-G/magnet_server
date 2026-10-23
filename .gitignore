@@ -1,4 +1,3 @@
-src/magnet/media
 # collectstatic output
 src/staticfiles/
 
