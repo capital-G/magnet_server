@@ -25,10 +25,8 @@ class AssetSerializer(serializers.ModelSerializer):
             "uploader",
             "uploaded_via",
             "comment",
-            "asset_format",
-            "architecture",
-            "operating_system",
-            "server_abi_version",
+            "abi",
+            "platform",
         ]
 
 
@@ -44,9 +42,9 @@ class ProjectSerializer(serializers.ModelSerializer):
     queryset = Project.objects.all().prefetch_related("releases")
 
     # project description are stored in releases, so we have take these attributes
-    # from the latest release
+    # from the latest release (releases are ordered newest first)
     def get_release_attribute(self, project: Project, attribute: str) -> Any | None:
-        if release := project.releases.last():
+        if release := project.releases.first():
             return release.__getattribute__(attribute)
         return None
 
@@ -81,8 +79,9 @@ class ProjectSerializer(serializers.ModelSerializer):
             "license",
             "last_update",
             "name",
+            "normalized_name",
             "slug",
-            "project_type",
+            "kind",
         ]
 
 
@@ -96,7 +95,7 @@ class ReleaseSerializer(serializers.ModelSerializer):
             "uuid",
             "created",
             "release_note",
-            "is_prerelease",
+            "published_at",
             "yanked",
             "assets",
         ]
@@ -118,8 +117,9 @@ class ProjectDetailSerializer(ProjectSerializer):
             "license",
             "last_update",
             "name",
+            "normalized_name",
             "slug",
-            "project_type",
+            "kind",
             "releases",
         ]
 
@@ -161,9 +161,7 @@ class AssetUploadSerializer(serializers.ModelSerializer):
             "sha256_checksum",
             "uploaded_via",
             "comment",
-            "asset_format",
-            "architecture",
-            "operating_system",
-            "server_abi_version",
+            "abi",
+            "platform",
             "release",
         ]

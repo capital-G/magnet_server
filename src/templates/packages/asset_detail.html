@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}{{ asset.identifier }} &mdash; magnet{% endblock %}
-{% block description %}{{ asset.get_asset_format_display }} asset for {{ asset.release.project.name }} v{{ asset.release.version }}{% endblock %}
+{% block description %}{{ asset.release.project.get_kind_display }} artifact for {{ asset.release.project.name }} v{{ asset.release.version }}{% endblock %}
 
 {% block content %}
 
@@ -15,16 +15,9 @@
             <strong class="is-size-4" style="font-family:monospace;">{{ asset.identifier }}</strong>
         </p>
         <div class="tags">
-            <span class="tag is-link is-light">{{ asset.get_asset_format_display }}</span>
-            {% if asset.operating_system %}
-                <span class="tag is-light">{{ asset.operating_system }}</span>
-            {% endif %}
-            {% if asset.architecture %}
-                <span class="tag is-light">{{ asset.architecture }}</span>
-            {% endif %}
-            {% if asset.server_abi_version %}
-                <span class="tag is-light">ABI {{ asset.server_abi_version }}</span>
-            {% endif %}
+            <span class="tag is-link is-light">{{ asset.release.project.get_kind_display }}</span>
+            <span class="tag is-light">ABI {{ asset.abi }}</span>
+            <span class="tag is-light">Platform {{ asset.platform }}</span>
         </div>
     </div>
 </div>

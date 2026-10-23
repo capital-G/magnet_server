@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from git_db.files import DuplicateIndexEntry, ProjectIndexFile
-from git_db.tests.factories import ReleaseFactory
 from packages.models import Project, Release
+from packages.tests.factories import ReleaseFactory
 
 
 @pytest.fixture

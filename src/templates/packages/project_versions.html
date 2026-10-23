@@ -11,9 +11,6 @@
         <tr>
             <td>
                 <a href="{% url 'project-detail' project.slug %}?version={{ release.version }}"><strong>{{ release.version }}</strong></a>
-                {% if release.is_prerelease %}
-                    <span class="tag is-warning is-light is-small ml-1">pre</span>
-                {% endif %}
                 {% if release.yanked %}
                     <span class="tag is-danger is-light is-small ml-1">yanked</span>
                 {% endif %}

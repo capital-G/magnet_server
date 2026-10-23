@@ -1,11 +1,7 @@
 import factory.django
-import faker
-from django.utils.text import slugify
 
 from packages.models import Project, Release
 from users.tests.factories import UserFactory
-
-fake = faker.Faker()
 
 
 class ProjectFactory(factory.django.DjangoModelFactory):
@@ -14,8 +10,8 @@ class ProjectFactory(factory.django.DjangoModelFactory):
 
     owner = factory.SubFactory(UserFactory)
 
-    name = factory.Sequence(lambda n: f"project {n}")
-    slug = factory.LazyAttribute(lambda obj: slugify(obj.name))
+    name = factory.Sequence(lambda n: f"project-{n}")
+    kind = Project.Kind.quark
 
 
 class ReleaseFactory(factory.django.DjangoModelFactory):
@@ -24,3 +20,4 @@ class ReleaseFactory(factory.django.DjangoModelFactory):
 
     project = factory.SubFactory(ProjectFactory)
     owner = factory.SubFactory(UserFactory)
+    version = factory.Sequence(lambda n: f"1.0.{n}")

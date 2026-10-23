@@ -4,9 +4,8 @@
     <thead>
         <tr>
             <th>Filename</th>
-            <th>Format</th>
-            <th>Platform</th>
             <th>ABI</th>
+            <th>Platform</th>
         </tr>
     </thead>
     <tbody>
@@ -16,21 +15,8 @@
                 <a href="{{ asset.file.url }}">{{ asset.identifier }}</a>
                 <a class="has-text-grey is-size-7 ml-2" href="{% url 'asset-detail' asset.uuid %}">[details]</a>
             </td>
-            <td>{{ asset.get_asset_format_display }}</td>
-            <td>
-                {% if asset.operating_system and asset.architecture %}
-                    {{ asset.operating_system }} / {{ asset.architecture }}
-                {% else %}
-                    <span class="has-text-grey">&mdash;</span>
-                {% endif %}
-            </td>
-            <td>
-                {% if asset.server_abi_version %}
-                    {{ asset.server_abi_version }}
-                {% else %}
-                    <span class="has-text-grey">&mdash;</span>
-                {% endif %}
-            </td>
+            <td>{{ asset.abi }}</td>
+            <td>{{ asset.platform }}</td>
         </tr>
         {% endfor %}
     </tbody>

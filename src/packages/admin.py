@@ -9,15 +9,16 @@ class ReleaseInlineAdmin(admin.TabularInline):
     model = Release
     extra = 0
 
-    readonly_fields = [
-        "created",
-    ]
-
     fields = [
         "version",
         "created",
-        "is_prerelease",
+        "published_at",
         "yanked",
+    ]
+
+    readonly_fields = [
+        "created",
+        "published_at",
     ]
 
 
@@ -25,23 +26,22 @@ class ReleaseInlineAdmin(admin.TabularInline):
 class ProjectAdmin(admin.ModelAdmin):
     list_display = [
         "name",
-        "slug",
+        "normalized_name",
+        "kind",
         "owner",
-        "project_type",
     ]
 
     readonly_fields = [
         "uuid",
+        "normalized_name",
     ]
-
-    prepopulated_fields = {"slug": ["name"]}
 
     inlines = [
         ReleaseInlineAdmin,
     ]
 
     list_filter = [
-        "project_type",
+        "kind",
         "last_update",
         "created",
     ]
@@ -56,6 +56,7 @@ class ProjectAdmin(admin.ModelAdmin):
 
     search_fields = [
         "name",
+        "normalized_name",
     ]
 
 
@@ -74,10 +75,9 @@ class AssetInline(admin.TabularInline):
     model = Asset
     extra = 0
     fields = [
-        "asset_format",
-        "architecture",
-        "operating_system",
-        "server_abi_version",
+        "abi",
+        "platform",
+        "sha256_checksum",
     ]
 
     readonly_fields = fields  # type: ignore
@@ -89,13 +89,14 @@ class ReleaseAdmin(admin.ModelAdmin):
         "project",
         "version",
         "created",
-        "is_prerelease",
+        "published_at",
         "yanked",
         "owner",
     ]
 
     readonly_fields = [
         "uuid",
+        "published_at",
     ]
 
     autocomplete_fields = [
@@ -109,7 +110,7 @@ class ReleaseAdmin(admin.ModelAdmin):
     ]
 
     list_filter = [
-        "is_prerelease",
+        "project__kind",
         "created",
         "last_update",
         "yanked",
@@ -117,14 +118,13 @@ class ReleaseAdmin(admin.ModelAdmin):
 
     search_fields = [
         "project__name",
-        "project__slug",
+        "project__normalized_name",
         "version",
     ]
 
     actions = [
         "add_to_git_index",
         "yank_release_in_git_index",
-        "make_git_entry",
     ]
 
     @admin.action(description="Add release to git index")
@@ -144,10 +144,8 @@ class AssetAdmin(admin.ModelAdmin):
         "file",
         "created",
         "release",
-        "asset_format",
-        "architecture",
-        "operating_system",
-        "server_abi_version",
+        "abi",
+        "platform",
     ]
 
     readonly_fields = [
@@ -157,10 +155,8 @@ class AssetAdmin(admin.ModelAdmin):
 
     list_filter = [
         "created",
-        "asset_format",
-        "architecture",
-        "operating_system",
-        "server_abi_version",
+        "abi",
+        "platform",
     ]
 
     autocomplete_fields = [

@@ -5,7 +5,7 @@ import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
-from git_db.models import GitReleaseModel, to_git_asset
+from git_db.models import GitArtifactModel, GitReleaseModel
 from packages.models import Asset, Project, Release
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ class ProjectIndexFile:
             print(serialized.model_dump_json(), file=f)
 
     def add_asset(self, asset: Asset):
-        serialized = to_git_asset(asset)
+        serialized = GitArtifactModel.from_asset(asset)
 
         # maybe check if already yanked?
         if not self._version_exists(GitReleaseModel.from_release(asset.release)):
@@ -90,31 +90,9 @@ class ProjectIndexFile:
             new_file.flush()
             shutil.copy(new_file.name, self.path)
 
-    def yank_asset(self, asset: Asset):
-        if not self._version_exists(GitReleaseModel.from_release(asset.release)):
-            raise IndexEntryMissing("Can not yank non-existing release")
-
-        with tempfile.NamedTemporaryFile(mode="w") as new_file:
-            # sorry - js filter/map does not exist in python :/
-            for existing_release in self.releases:
-                if existing_release == asset.release:
-                    for existing_asset in existing_release.assets:
-                        if existing_asset == asset:
-                            existing_asset.yanked = True
-                print(existing_release.model_dump_json(), file=new_file)
-            # don't forget to flush the file so the content has indeed been written
-            new_file.flush()
-            shutil.copy(new_file.name, self.path)
-
     def _version_exists(self, release: GitReleaseModel):
         # maybe add additional kwargs to check the version against
         return release in list(self.releases)
-
-    def _asset_exists(self, asset: Asset):
-        for existing_release in self.releases:
-            if existing_release == asset.release:
-                return asset in existing_release.assets
-        return False
 
     def verify_integrity(self) -> None:
         for _release in self.releases:

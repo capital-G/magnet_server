@@ -16,7 +16,6 @@ dependencies = [
     "gunicorn>=25.1.0",
     "psycopg2-binary>=2.9.11",
     "pydantic>=2.11.7",
-    "semver>=3.0.4",
     "whitenoise>=6.12.0",
 ]
 
@@ -41,8 +40,6 @@ ignore = ["E501"]
 # settings variants extend the base settings via star import
 "src/magnet/settings_*.py" = ["F403", "F405"]
 "**/migrations/*.py" = ["E", "I", "UP"]
-# @todo remove in S1, which replaces the Asset fields and methods these refer to
-"src/packages/models.py" = ["DJ001", "DJ012"]
 
 [tool.mypy]
 plugins = [

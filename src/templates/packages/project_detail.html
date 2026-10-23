@@ -10,9 +10,6 @@
             <strong class="is-size-3">{{ project.name }}</strong>
             {% if release %}
                 <span class="has-text-grey is-size-4 ml-2">v{{ release.version }}</span>
-                {% if release.is_prerelease %}
-                    <span class="tag is-warning is-light ml-2">pre-release</span>
-                {% endif %}
                 {% if release.yanked %}
                     <span class="tag is-danger is-light ml-2">yanked</span>
                 {% endif %}
@@ -21,7 +18,7 @@
         {% if release.summary %}
             <p class="has-text-grey-dark mb-3">{{ release.summary }}</p>
         {% endif %}
-        <span class="tag is-link is-light">{{ project.project_type }}</span>
+        <span class="tag is-link is-light">{{ project.get_kind_display }}</span>
     </div>
 </div>
 

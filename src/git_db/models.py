@@ -9,58 +9,20 @@ Therefore it seems better to handle JSON verification logic via pydantic.
 """
 
 
-class GitServerExtensionBinaryAssetModel(BaseModel):
-    sha_256: str
-    asset_format: Asset.AssetFormat
-    architecture: Asset.Architecture
-    os: Asset.OperatingSystem
-    abi: Asset.ServerAbiVersion
-    yanked: bool = Field(default=False)
+class GitArtifactModel(BaseModel):
+    """An artifact of a release, identified by its (abi, platform)."""
+
+    abi: str
+    platform: str
+    sha256: str
 
     @classmethod
-    def from_asset(cls, asset: Asset) -> "GitServerExtensionBinaryAssetModel":
-        assert asset.asset_format == Asset.AssetFormat.server_extension_binary
+    def from_asset(cls, asset: Asset) -> "GitArtifactModel":
         return cls(
-            sha_256=asset.sha256_checksum,
-            asset_format=asset.asset_format,  # type: ignore
-            architecture=asset.architecture,  # type: ignore
-            os=asset.operating_system,  # type: ignore
-            abi=asset.server_abi_version,  # type: ignore
+            abi=asset.abi,
+            platform=asset.platform,
+            sha256=asset.sha256_checksum,
         )
-
-    def __eq__(self, other):
-        return self.sha_256 == other.sha_256
-
-
-class GitQuarkSourceAssetModel(BaseModel):
-    """Serializer for git index regarding available implementations of a given version
-    which can be either source code or compiled binaries."""
-
-    sha_256: str
-    asset_format: Asset.AssetFormat
-    yanked: bool = Field(default=False)
-
-    @classmethod
-    def from_asset(cls, asset: Asset) -> "GitQuarkSourceAssetModel":
-        assert asset.asset_format == Asset.AssetFormat.quark_source
-        return cls(
-            asset_format=asset.asset_format,  # type: ignore
-            sha_256=asset.sha256_checksum,
-        )
-
-    def __eq__(self, other):
-        return self.sha_256 == other.sha_256
-
-
-def to_git_asset(
-    asset: Asset,
-) -> GitServerExtensionBinaryAssetModel | GitQuarkSourceAssetModel:
-    """Helper method which derives to designated JSON representation"""
-    if asset.asset_format == Asset.AssetFormat.quark_source:
-        return GitQuarkSourceAssetModel.from_asset(asset)
-    elif asset.asset_format == Asset.AssetFormat.server_extension_binary:
-        return GitServerExtensionBinaryAssetModel.from_asset(asset)
-    raise NotImplementedError
 
 
 class GitDependencyModel(BaseModel):
@@ -97,9 +59,7 @@ class GitReleaseModel(BaseModel):
     yanked: bool = Field(default=False)
 
     dependencies: list[GitDependencyModel] = Field(default_factory=list)
-    assets: list[GitServerExtensionBinaryAssetModel | GitQuarkSourceAssetModel] = Field(
-        default_factory=list
-    )
+    assets: list[GitArtifactModel] = Field(default_factory=list)
 
     @classmethod
     def from_release(cls, release: Release) -> "GitReleaseModel":
@@ -111,7 +71,7 @@ class GitReleaseModel(BaseModel):
                 GitDependencyModel.from_dependency(d)
                 for d in Dependency.objects.filter(release=release)
             ],
-            assets=[to_git_asset(a) for a in release.assets.all()],
+            assets=[GitArtifactModel.from_asset(a) for a in release.assets.all()],
         )
 
     def __eq__(self, other) -> bool:

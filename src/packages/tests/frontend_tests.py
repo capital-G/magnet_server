@@ -4,7 +4,7 @@ import pytest
 from django.core.management import call_command
 from django.urls import reverse
 
-from git_db.tests.factories import ReleaseFactory
+from packages.tests.factories import ReleaseFactory
 
 # a <script> or <link> which loads from another host
 EXTERNAL_ASSET = re.compile(r"<(script|link)[^>]+(src|href)=\"(https?:)?//")

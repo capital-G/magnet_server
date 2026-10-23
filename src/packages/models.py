@@ -3,24 +3,59 @@ import logging
 import os
 import uuid
 
-import semver
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
+from packages.validators import (
+    normalize_name,
+    parse_version,
+    validate_artifact_tag,
+    validate_name,
+    validate_version,
+    validate_version_req,
+)
+
 logger = logging.getLogger(__name__)
+
+# abi and platform of artifacts which run everywhere, e.g. the sources of a quark
+ANY = "any"
 
 
 def get_sentinel_user():
     return get_user_model().objects.get_or_create(username="deleted")[0]
 
 
-def valid_semver(value: str) -> None:
-    if not semver.VersionInfo.is_valid(value):
-        raise ValidationError("Invalid semver format")
+def artifact_filename(
+    name: str, version: str, kind: str, abi: str, platform: str
+) -> str:
+    return f"{name}-{version}-{kind}-{abi}-{platform}.tar.gz"
+
+
+def artifact_path(name: str, version: str, kind: str, abi: str, platform: str) -> str:
+    """Storage path of an artifact relative to the storage root, which is also its
+    download path (the `dl` template of the index `config.json`)."""
+    return (
+        f"dl/{name}/{version}/{artifact_filename(name, version, kind, abi, platform)}"
+    )
+
+
+def asset_upload_to(asset: "Asset", filename: str) -> str:
+    release = asset.release
+    return artifact_path(
+        name=release.project.normalized_name,
+        version=release.version,
+        kind=release.project.kind,
+        abi=asset.abi,
+        platform=asset.platform,
+    )
+
+
+def validate_tar_gz_name(file: models.FileField) -> None:
+    if not file.name or not file.name.endswith(".tar.gz"):
+        raise ValidationError(_("File must be a .tar.gz"))
 
 
 class Project(models.Model):
@@ -28,9 +63,12 @@ class Project(models.Model):
     This is more like an organization as all meta-data for the
     project are attached to the release."""
 
-    class ProjectType(models.TextChoices):
-        quark = "Quark"
-        server_extension = "Server Extension"
+    class Kind(models.TextChoices):
+        """See D1.4. The kind of a project can't change after its first release."""
+
+        quark = "quark", _("Quark")
+        lepton = "lepton", _("Lepton")
+        gluon = "gluon", _("Gluon")
 
     uuid = models.UUIDField(
         editable=False,
@@ -52,22 +90,32 @@ class Project(models.Model):
 
     name = models.CharField(
         max_length=255,
-        help_text=_("The name of the project"),
-        unique=True,
+        help_text=_("The name of the project, e.g. DDW_Common"),
+        validators=[validate_name],
     )
 
-    project_type = models.CharField(
+    normalized_name = models.CharField(
         max_length=255,
-        choices=ProjectType.choices,
-        blank=False,
+        unique=True,
+        editable=False,
+        help_text=_(
+            "Lowercase name with '_' replaced by '-', e.g. ddw-common. "
+            "Used by the index and download URLs."
+        ),
+    )
+
+    kind = models.CharField(
+        max_length=16,
+        choices=Kind.choices,
     )
 
     slug = models.SlugField(
         max_length=255,
-        blank=False,
-        null=False,
-        help_text=_("URL compatible name of the project"),
         unique=True,
+        blank=True,
+        help_text=_(
+            "URL compatible name of the project. Defaults to the normalized name."
+        ),
     )
 
     # should this be many-to-many?
@@ -87,10 +135,33 @@ class Project(models.Model):
     class Meta:
         verbose_name = _("Project")
         verbose_name_plural = _("Projects")
-        ordering = ("name",)
+        ordering = ("normalized_name",)
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        self.normalized_name = normalize_name(self.name)
+        if not self.slug:
+            self.slug = self.normalized_name
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        # Model forms exclude non-editable fields from the unique checks,
+        # so check the normalized name here to get an error instead of an IntegrityError.
+        self.normalized_name = normalize_name(self.name)
+        collision = (
+            Project.objects.filter(normalized_name=self.normalized_name)
+            .exclude(pk=self.pk)
+            .first()
+        )
+        if collision:
+            raise ValidationError(
+                {
+                    "name": _("The name collides with the existing project %(name)s.")
+                    % {"name": collision.name}
+                }
+            )
 
 
 class Dependency(models.Model):
@@ -108,8 +179,10 @@ class Dependency(models.Model):
 
     constraint = models.CharField(
         max_length=255,
-        blank=False,
-        null=False,
+        validators=[validate_version_req],
+        help_text=_(
+            "Version requirement in Cargo syntax, e.g. ^1.2.3, ~1.2 or >=1, <2"
+        ),
     )
 
     class Meta:
@@ -118,11 +191,20 @@ class Dependency(models.Model):
                 name="unique_dependencies",
                 fields=("release", "dependency"),
             ),
-            # @todo add constraint of no self-dependencies!
         ]
 
     def __str__(self):
         return f"{self.release} requires {self.dependency} ({self.constraint})"
+
+    def clean(self):
+        if (
+            self.release_id
+            and self.dependency_id
+            and self.release.project_id == self.dependency_id
+        ):
+            raise ValidationError(
+                {"dependency": _("A project can't depend on itself.")}
+            )
 
 
 class Release(models.Model):
@@ -149,6 +231,13 @@ class Release(models.Model):
         help_text=_("The date and time the project was last updated"),
     )
 
+    published_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        editable=False,
+        help_text=_("The date and time the release was written to the index"),
+    )
+
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
@@ -158,13 +247,14 @@ class Release(models.Model):
 
     version = models.CharField(
         max_length=60,
-        blank=False,
-        null=False,
-        help_text=_(
-            "The version of the release. Semantic versioning is advised, i.e. 2.10.0"
-        ),
-        validators=[valid_semver],
+        help_text=_("The version of the release as MAJOR.MINOR.PATCH, e.g. 2.10.0"),
+        validators=[validate_version],
     )
+
+    # set from version on save, so releases can be ordered by version
+    version_major = models.PositiveIntegerField(editable=False)
+    version_minor = models.PositiveIntegerField(editable=False)
+    version_patch = models.PositiveIntegerField(editable=False)
 
     summary = models.TextField(
         blank=True,
@@ -182,11 +272,6 @@ class Release(models.Model):
         blank=True,
         default="",
         help_text=_("Comment about the release"),
-    )
-
-    is_prerelease = models.BooleanField(
-        default=False,
-        help_text=_("Whether the release is prerelease"),
     )
 
     owner = models.ForeignKey(
@@ -240,6 +325,31 @@ class Release(models.Model):
         symmetrical=False,
     )
 
+    class Meta:
+        # newest version first
+        ordering = (
+            "-version_major",
+            "-version_minor",
+            "-version_patch",
+        )
+        verbose_name = _("Release")
+        verbose_name_plural = _("Releases")
+        constraints = [
+            models.UniqueConstraint(
+                name="unique_project_version",
+                fields=("project", "version"),
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.project} ({self.version})"
+
+    def save(self, *args, **kwargs):
+        self.version_major, self.version_minor, self.version_patch = parse_version(
+            self.version
+        )
+        super().save(*args, **kwargs)
+
     def make_git_entry(self):
         # avoid circular imports
         from git_db.db import git_database
@@ -254,63 +364,11 @@ class Release(models.Model):
 
         git_database.yank_release(self)
 
-    class Meta:
-        ordering = (
-            "-version",
-            "-created",
-        )
-        verbose_name = _("Release")
-        verbose_name_plural = _("Releases")
-        constraints = [
-            models.UniqueConstraint(
-                name="unique_project_version",
-                fields=("project", "version"),
-            )
-        ]
-
-    def __str__(self):
-        return f"{self.project} ({self.version})"
-
 
 class Asset(models.Model):
-    class AssetFormat(models.TextChoices):
-        quark_source = "quark_source", _("Quark source")
-        server_extension_binary = (
-            "server_extension_binary",
-            _("Server extension binary"),
-        )
-
-    class Architecture(models.TextChoices):
-        x86_64 = "x86_64", _("X86 64bit")
-        x86 = "x86", _("X86 32bit")
-        armv7 = "armv7", _("ARMv7")  # 32bit arm
-        armv8 = "armv8", _("ARMv8")  # 64bit arm
-        arm64 = "arm64", _("ARM64")  # arm from apple
-
-    class OperatingSystem(models.TextChoices):
-        windows = "windows", _("Windows")
-        linux = "linux", _("Linux")
-        # @todo make this lowercase!
-        macos = "macOS", _("MacOS")
-
-    class ServerAbiVersion(models.IntegerChoices):
-        """Server extensions need to be compiled against a specific server API version.
-        See <https://github.com/supercollider/supercollider/blob/217e94c53fbb82658e99fa734fd0d857eb9897c4/include/plugin_interface/SC_InterfaceTable.h#L26>
-        """
-
-        version_1 = 1  # 3.5 via 55cc46e (2011)
-        version_2 = 2  # 3.9 via 0f39fea (2012)
-        version_3 = 3  # 3.9 via 47a88a0 (2017)
-        version_4 = 4  # 3.15 - unreleased - PR via https://github.com/supercollider/supercollider/pull/6702 (ca 2025)
-
-    def get_upload_to(self, filename) -> str:
-        # use a custom file format?
-        return f"assets/{self.release.project.slug}/{self.identifier}.tar.gz"
-
-    @staticmethod
-    def is_tar_gz_file(filename: models.FileField):
-        if not filename.name.endswith(".tar.gz"):
-            raise ValidationError(_("File must be a .tar.gz"))
+    """The artifact of a release for one (abi, platform), see D1.5.
+    Quarks have a single artifact for `any`/`any`. Leptons have one per
+    (abi, platform) plus their sources as `source`/`any`."""
 
     uuid = models.UUIDField(
         editable=False,
@@ -331,10 +389,9 @@ class Asset(models.Model):
     )
 
     file = models.FileField(
-        blank=False,
-        null=False,
-        upload_to=get_upload_to,
-        validators=[is_tar_gz_file],
+        max_length=512,
+        upload_to=asset_upload_to,
+        validators=[validate_tar_gz_name],
         help_text=_("The uploaded file in .tar.gz format"),
     )
 
@@ -374,94 +431,39 @@ class Asset(models.Model):
         help_text=_("The release this extension belongs to"),
     )
 
-    asset_format = models.CharField(
-        max_length=32,
-        choices=AssetFormat.choices,
-        blank=False,
-        null=False,
-        help_text=_("Which kind of asset format this is targeting"),
+    # The vocabulary of abi and platform for leptons is not decided yet (D3.2),
+    # e.g. the server plugin API version (`api3`) and `linux_x86_64`.
+    abi = models.CharField(
+        max_length=64,
+        default=ANY,
+        validators=[validate_artifact_tag],
+        help_text=_("ABI the artifact targets, 'any' for quarks"),
     )
 
-    architecture = models.CharField(
-        max_length=16,
-        choices=Architecture.choices,
-        blank=True,
-        null=True,  # null for quarks
+    platform = models.CharField(
+        max_length=64,
+        default=ANY,
+        validators=[validate_artifact_tag],
+        help_text=_("Platform the artifact targets, 'any' for quarks"),
     )
-
-    operating_system = models.CharField(
-        max_length=16,
-        choices=OperatingSystem.choices,
-        blank=True,
-        null=True,  # null for quarks
-    )
-
-    server_abi_version = models.IntegerField(
-        blank=True,
-        choices=ServerAbiVersion.choices,
-        null=True,  # null for quarks
-        help_text=_(
-            "The server runtime this extension is targeting. Leave empty for Quarks."
-        ),
-    )
-
-    @property
-    def filename(self):
-        return os.path.basename(self.file.name)
-
-    @property
-    def identifier(self) -> str:
-        if self.asset_format == Asset.AssetFormat.server_extension_binary:
-            return f"{self.release.project.slug}-{self.release.version}-{self.architecture}-{self.operating_system}-abi{self.server_abi_version}"
-        else:
-            return f"{self.release.project.slug}-{self.release.version}-quark-source"
-
-    def make_git_entry(self):
-        from git_db.db import git_database
-
-        git_database.commit_asset(self)
 
     class Meta:
         ordering = (
             "release",
-            "-created",
+            "abi",
+            "platform",
         )
         verbose_name = _("Asset")
         verbose_name_plural = _("Assets")
-        # should constraints be added for release/platform tuples?
-
         constraints = [
-            models.CheckConstraint(
-                name="mandatory_tuples",
-                condition=(
-                    Q(asset_format="server_extension_binary")
-                    & Q(operating_system__isnull=False)
-                    & Q(server_abi_version__isnull=False)
-                    & Q(architecture__isnull=False)
-                )
-                | (
-                    Q(asset_format="quark_source")
-                    & Q(operating_system__isnull=True)
-                    & Q(server_abi_version__isnull=True)
-                    & Q(architecture__isnull=True)
-                ),
-            )
+            models.UniqueConstraint(
+                name="unique_release_abi_platform",
+                fields=("release", "abi", "platform"),
+            ),
         ]
 
-        unique_together = (
-            "release",
-            "server_abi_version",
-            "architecture",
-            "operating_system",
-            "asset_format",
-        )
-
-    def clean(self, *args, **kwargs):
-        # hack so we can also insert quark sources via the admin
-        for a in ["server_abi_version", "architecture", "operating_system"]:
-            if getattr(self, a) == "":
-                setattr(self, a, None)
-        return super().clean()
+    def __str__(self):
+        return self.identifier
 
     def save(self, *args, **kwargs):
         if self.file and not self.sha256_checksum:
@@ -472,5 +474,32 @@ class Asset(models.Model):
             logger.info(f"{self} obtained checksum {self.sha256_checksum}")
         super().save(*args, **kwargs)
 
-    def __str__(self):
-        return self.identifier
+    def clean(self):
+        if (
+            self.release_id
+            and self.release.project.kind == Project.Kind.quark
+            and (self.abi, self.platform) != (ANY, ANY)
+        ):
+            raise ValidationError(
+                _("A quark has a single artifact with abi and platform 'any'.")
+            )
+
+    @property
+    def filename(self) -> str:
+        return os.path.basename(self.file.name)
+
+    @property
+    def identifier(self) -> str:
+        project = self.release.project
+        return artifact_filename(
+            name=project.normalized_name,
+            version=self.release.version,
+            kind=project.kind,
+            abi=self.abi,
+            platform=self.platform,
+        ).removesuffix(".tar.gz")
+
+    def make_git_entry(self):
+        from git_db.db import git_database
+
+        git_database.commit_asset(self)
