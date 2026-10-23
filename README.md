@@ -9,7 +9,41 @@ The REST API is protected via OAuth2.
 
 The frontend is written within Django and uses HTMX and AlpineJS.
 
-The packet assets are stored on the local filesystem - at a later stage a distributed storage such as Minio could be used.
+The package index is a git repository, which only the server writes and the `magnet` CLI fetches.
+The artifacts (`.tar.gz`) are stored on the local filesystem at their download path and served by nginx.
+
+## Local stack
+
+`docker-compose.yml` runs everything the `magnet` CLI needs:
+
+| Service      | URL                                        |                                       |
+|--------------|--------------------------------------------|---------------------------------------|
+| `server`     | <http://localhost:8000>                    | Django: frontend, admin, API          |
+| `nginx`      | <http://localhost:8080/dl/…>               | artifact downloads                    |
+| `git_daemon` | `git://localhost:9418/magnet_index.git`    | the index                             |
+| `git_web`    | <http://localhost:8081>                    | the index in gitweb                   |
+| `database`   | `localhost:5432`                           | postgres                              |
+
+```shell
+make up          # docker compose up -d --build; creates the index on the first start
+make superuser   # owner of the seeded packages
+make seed        # publishes the CLI's fixture packages from ../magnet_cli/tests/fixtures
+```
+
+`make` uses `podman` if `docker` is no executable (e.g. only a shell alias), or pass `DOCKER=…`.
+Use the index with the CLI via `MAGNET_GIT_INDEX_URL=git://localhost:9418/magnet_index.git`.
+Releases can also be published by hand:
+
+```shell
+docker compose exec server python manage.py publish --help
+```
+
+The index and the artifacts live in the volumes `index` and `artifacts`; `docker compose down -v` resets everything.
+The index can always be regenerated from the database with `python manage.py rebuild_index`.
+
+Without docker, `cd src && DJANGO_SETTINGS_MODULE=magnet.settings_local uv run manage.py runserver` serves the
+artifacts itself under `/dl/`, the index is a bare repository at `~/git/magnet/magnet_index.git`
+(`manage.py init_index`, then `manage.py seed_cli_fixtures ../../magnet_cli/tests/fixtures`).
 
 ## Development
 

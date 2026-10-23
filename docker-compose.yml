@@ -1,20 +1,32 @@
+# Local test stack, see README.md. Do NOT use this in production!
+#
+#   http://localhost:8000          Django (frontend, admin, API)
+#   http://localhost:8080/dl/…     artifact downloads (nginx)
+#   git://localhost:9418/magnet_index.git   the index (git daemon)
+#   http://localhost:8081          the index in gitweb
+
 volumes:
   db:
-  media:
-  venv:
+  # the bare index repository, written by `server` only
+  index:
+  # the artifacts at their download path, written by `server` only
+  artifacts:
 
 services:
   server:
     build: .
     depends_on:
-      - database
+      database:
+        condition: service_healthy
     env_file:
       - .local.env
-    volumes:
-      - media:/app/media
-      - ${LOCAL_MAGNET_INDEX_PATH}:/srv/git/magnet_index.git:ro
     environment:
       - GIT_INDEX_REPO_PATH=/srv/git/magnet_index.git
+      - MAGNET_ARTIFACTS_ROOT=/srv/artifacts
+      - MAGNET_DOWNLOAD_BASE_URL=http://localhost:${NGINX_PORT:-8080}/
+    volumes:
+      - index:/srv/git
+      - artifacts:/srv/artifacts
     ports:
       - ${MAGNET_PORT:-8000}:8000
 
@@ -22,28 +34,36 @@ services:
     image: postgres:17-alpine
     env_file:
       - .local.env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
     ports:
-      - 5432:5432
+      - ${POSTGRES_PORT:-5432}:5432
     volumes:
       - db:/var/lib/postgresql/data
 
   nginx:
-    image: nginx:alpine
+    image: nginx:1.28-alpine
     volumes:
-      - media:/usr/share/nginx/html/media
-
-  git_web:
-    build: git_server
-    command: ["lighttpd", "-D", "-f", "/etc/lighttpd/lighttpd.conf"]
-    volumes:
-      - ${LOCAL_MAGNET_INDEX_PATH}:/srv/git/magnet_index.git:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - artifacts:/srv/artifacts:ro
     ports:
-      - ${GIT_WEB_PORT:-8080}:80
+      - ${NGINX_PORT:-8080}:80
 
   git_daemon:
     build: git_server
     command: ["git", "daemon", "--reuseaddr", "--base-path=/srv/git", "--export-all", "--verbose", "/srv/git"]
     volumes:
-      - ${LOCAL_MAGNET_INDEX_PATH}:/srv/git/magnet_index.git:ro
+      - index:/srv/git:ro
     ports:
       - ${GIT_DAEMON_PORT:-9418}:9418
+
+  git_web:
+    build: git_server
+    command: ["lighttpd", "-D", "-f", "/etc/lighttpd/lighttpd.conf"]
+    volumes:
+      - index:/srv/git:ro
+    ports:
+      - ${GIT_WEB_PORT:-8081}:80
