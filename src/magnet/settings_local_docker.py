@@ -13,9 +13,7 @@ DATABASES = {
     }
 }
 
-GIT_INDEX_REPO_PATH = Path(os.environ["GIT_INDEX_REPO_PATH"])
-
-ALLOWED_HOSTS: List[str] = [
+ALLOWED_HOSTS = [
     "127.0.0.1",
     "0.0.0.0",
 ]

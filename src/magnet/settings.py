@@ -158,15 +158,12 @@ OAUTH2_PROVIDER = {
 LOGIN_REDIRECT_URL = "/"
 LOGIN_URL = "/accounts/login/"
 LOGOUT_URL = "/accounts/logout/"
-AUTH_PROFILE_MODULE = "accounts.userprofile"
 
 # allauth settings
 ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]
 ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
-ACCOUNT_EMAIL_SUBJECT_PREFIX = "[SC-Baryon] "
-ACCOUNT_FIRST_NAME_REQUIRED = True
-OPEN_FOR_SIGNUP = True
+ACCOUNT_EMAIL_SUBJECT_PREFIX = "[magnet] "
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
@@ -190,8 +187,24 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Local defaults live next to the magnet_server and magnet_cli checkouts,
+# so both projects can share them.
+_MAGNET_WORKSPACE_DIR = BASE_DIR.parent.parent
+
 # this must point to a bare git repo!
-GIT_INDEX_REPO_PATH = Path(os.environ["GIT_INDEX_REPO_PATH"])
+GIT_INDEX_REPO_PATH = Path(
+    os.environ.get("GIT_INDEX_REPO_PATH", _MAGNET_WORKSPACE_DIR / "magnet_index.git")
+)
+
+# Artifacts are stored at their download path relative to this directory.
+MAGNET_ARTIFACTS_ROOT = Path(
+    os.environ.get("MAGNET_ARTIFACTS_ROOT", _MAGNET_WORKSPACE_DIR / "magnet_artifacts")
+)
+
+# Base URL of the `dl` template in the index `config.json`.
+MAGNET_DOWNLOAD_BASE_URL = os.environ.get(
+    "MAGNET_DOWNLOAD_BASE_URL", "http://localhost:8000/"
+)
 
 # Markdown
 MARKDOWNIFY = {
