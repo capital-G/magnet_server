@@ -1,4 +1,6 @@
 src/magnet/media
+# collectstatic output
+src/staticfiles/
 
 .venv/
 .idea/

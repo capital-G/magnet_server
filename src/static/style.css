@@ -3,6 +3,11 @@
     --bulma-hero-h: var(--bulma-link);
 }
 
+/* hide Alpine-controlled elements until Alpine has initialised */
+[x-cloak] {
+    display: none !important;
+}
+
 .hero {
     background-color: var(--bulma-link) !important;
 }

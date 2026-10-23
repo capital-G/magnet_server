@@ -19,3 +19,10 @@ ALLOWED_HOSTS = [
 ]
 
 DEBUG = True
+
+STORAGES = {
+    **STORAGES,
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}

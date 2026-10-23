@@ -17,11 +17,16 @@ dependencies = [
     "psycopg2-binary>=2.9.11",
     "pydantic>=2.11.7",
     "semver>=3.0.4",
+    "whitenoise>=6.12.0",
 ]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "magnet.settings"
 python_files = ["**/tests/*.py"]
+filterwarnings = [
+    # whitenoise: tests don't run collectstatic, so STATIC_ROOT doesn't exist
+    "ignore:No directory at:UserWarning",
+]
 
 [tool.ruff]
 src = ["src"]
