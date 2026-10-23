@@ -1,106 +1,92 @@
 import json
 import logging
-import shutil
-import tempfile
-from collections.abc import Iterator
 from pathlib import Path
 
 from git_db.models import GitArtifactModel, GitReleaseModel
-from packages.models import Asset, Project, Release
 
 logger = logging.getLogger(__name__)
 
 
-class DuplicateIndexEntry(Exception):
+class IndexWriteError(Exception):
+    """A change which would break the rules of the index, so nothing got written."""
+
+
+class DuplicateIndexEntry(IndexWriteError):
     pass
 
 
-class IndexEntryMissing(Exception):
+class IndexEntryMissing(IndexWriteError):
+    pass
+
+
+class KindMismatch(IndexWriteError):
     pass
 
 
 class ProjectIndexFile:
-    """A project index file stores each release of a project in a line.
-    In order to reduce file load on the index the files are arranged for e.g.
-    MathLib (which has `mathlib` as slug): `m/mathlib` without file extension.
+    """The package file of a project: one line per release, in publish order,
+    at `<first char of the normalized name>/<normalized name>.jsonl`,
+    e.g. `d/ddw-common.jsonl`.
 
-    Each line addresses a specific release and is immutable except for
-    - assets (so it becomes possible to address)
-    - yanked (can change to true)
-
+    Lines are never removed. They are immutable except for
+    - artifacts, which can be appended
+    - yanked, which can change to true
     """
 
     def __init__(self, path: Path):
         self.path = path
 
     @classmethod
-    def for_project(cls, base_path: Path, project: Project):
-        """In order to avoid race conditions, please fork the git repository
-        locally via worktree and use this as base path."""
-        path = base_path / project.slug[0].lower() / f"{project.slug.lower()}"
-
-        # make sure that the single path file name exists
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        if not path.exists():
-            logger.info(f"Create new project index file for {project}")
-            path.touch()
-
-        return cls(path)
-
-    def add_release(self, release: Release):
-        """Adds a release to the index file.
-        If the semantic version already exists, an exception will be raised."""
-        serialized = GitReleaseModel.from_release(release)
-
-        if self._version_exists(serialized):
-            raise DuplicateIndexEntry("Version already present in index file")
-
-        with self.path.open(mode="a") as f:
-            print(serialized.model_dump_json(), file=f)
-
-    def add_asset(self, asset: Asset):
-        serialized = GitArtifactModel.from_asset(asset)
-
-        # maybe check if already yanked?
-        if not self._version_exists(GitReleaseModel.from_release(asset.release)):
-            raise IndexEntryMissing("Can not add asset to non-existing release")
-
-        with tempfile.NamedTemporaryFile(mode="w") as new_file:
-            for existing_release in self.releases:
-                if existing_release.version == asset.release.version:
-                    # @todo check that this asset does not exist yet
-                    existing_release.assets.append(serialized)
-                print(existing_release.model_dump_json(), file=new_file)
-            # don't forget to flush the file so the content has indeed been written
-            new_file.flush()
-            shutil.copy(new_file.name, self.path)
-
-    def yank_release(self, release: Release):
-        # maybe check if already yanked?
-        if not self._version_exists(GitReleaseModel.from_release(release)):
-            raise IndexEntryMissing("Can not yank non-existing release")
-
-        with tempfile.NamedTemporaryFile(mode="w") as new_file:
-            for existing_release in self.releases:
-                if existing_release == release:
-                    existing_release.yanked = True
-                print(existing_release.model_dump_json(), file=new_file)
-            # don't forget to flush the file so the content has indeed been written
-            new_file.flush()
-            shutil.copy(new_file.name, self.path)
-
-    def _version_exists(self, release: GitReleaseModel):
-        # maybe add additional kwargs to check the version against
-        return release in list(self.releases)
-
-    def verify_integrity(self) -> None:
-        for _release in self.releases:
-            pass
+    def for_name(cls, index_root: Path, normalized_name: str) -> "ProjectIndexFile":
+        return cls(index_root / normalized_name[0] / f"{normalized_name}.jsonl")
 
     @property
-    def releases(self) -> Iterator[GitReleaseModel]:
-        # maybe this should be cached upon init and not cached upon request? :?
-        with self.path.open(mode="r") as f:
-            for line in f.readlines():
-                yield GitReleaseModel(**json.loads(line))
+    def releases(self) -> list[GitReleaseModel]:
+        if not self.path.exists():
+            return []
+        with self.path.open() as f:
+            return [GitReleaseModel(**json.loads(line)) for line in f if line.strip()]
+
+    def write(self, releases: list[GitReleaseModel]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text("".join(f"{release.to_json()}\n" for release in releases))
+
+    def add_release(self, release: GitReleaseModel) -> None:
+        """Appends a release. Its version must be new and its kind the one of the
+        earlier releases, since the kind is fixed by the first release (D2.3)."""
+        releases = self.releases
+        for existing in releases:
+            if existing.version == release.version:
+                raise DuplicateIndexEntry(
+                    f"{release.name} {release.version} is already in the index"
+                )
+            if existing.kind != release.kind:
+                raise KindMismatch(
+                    f"{release.name} is a {existing.kind}, can't add a {release.kind}"
+                )
+        if not releases:
+            logger.info(f"Create new package file {self.path.name}")
+        self.write([*releases, release])
+
+    def add_artifact(self, version: str, artifact: GitArtifactModel) -> None:
+        releases = self.releases
+        release = self._find(releases, version)
+        for existing in release.artifacts:
+            if (existing.abi, existing.platform) == (artifact.abi, artifact.platform):
+                raise DuplicateIndexEntry(
+                    f"{release.name} {version} already has an artifact "
+                    f"for {artifact.abi}/{artifact.platform}"
+                )
+        release.artifacts.append(artifact)
+        self.write(releases)
+
+    def yank_release(self, version: str) -> None:
+        releases = self.releases
+        self._find(releases, version).yanked = True
+        self.write(releases)
+
+    def _find(self, releases: list[GitReleaseModel], version: str) -> GitReleaseModel:
+        for release in releases:
+            if release.version == version:
+                return release
+        raise IndexEntryMissing(f"{self.path.stem} {version} is not in the index")

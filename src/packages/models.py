@@ -348,17 +348,17 @@ class Release(models.Model):
 
     def make_git_entry(self):
         # avoid circular imports
-        from git_db.db import git_database
+        from git_db.db import get_git_database
 
-        git_database.commit_release(self)
+        get_git_database().commit_release(self)
 
     def yank_git_entry(self):
-        from git_db.db import git_database
+        from git_db.db import get_git_database
 
+        # the index first, so the database only says yanked once the index does
+        get_git_database().yank_release(self)
         self.yanked = True
-        self.save()
-
-        git_database.yank_release(self)
+        self.save(update_fields=["yanked"])
 
 
 class Asset(models.Model):
@@ -506,6 +506,6 @@ class Asset(models.Model):
         ).removesuffix(".tar.gz")
 
     def make_git_entry(self):
-        from git_db.db import git_database
+        from git_db.db import get_git_database
 
-        git_database.commit_asset(self)
+        get_git_database().commit_asset(self)

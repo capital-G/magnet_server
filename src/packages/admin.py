@@ -1,7 +1,28 @@
-from django.contrib import admin
-from django.db.models import QuerySet
+from collections.abc import Callable, Iterable
 
+from django.contrib import admin, messages
+from django.db.models import Model, QuerySet
+
+from git_db.db import GitCommandError
+from git_db.files import IndexWriteError
 from packages.models import Asset, Dependency, Project, Release
+
+
+def run_index_action[T: Model](
+    model_admin: admin.ModelAdmin,
+    request,
+    objects: Iterable[T],
+    action: Callable[[T], None],
+    done: str,
+) -> None:
+    """Runs an index write per object and reports each result as a message."""
+    for obj in objects:
+        try:
+            action(obj)
+        except (IndexWriteError, GitCommandError) as e:
+            model_admin.message_user(request, f"{obj}: {e}", messages.ERROR)
+        else:
+            model_admin.message_user(request, f"{obj}: {done}", messages.SUCCESS)
 
 
 class ReleaseInlineAdmin(admin.TabularInline):
@@ -129,13 +150,15 @@ class ReleaseAdmin(admin.ModelAdmin):
 
     @admin.action(description="Add release to git index")
     def add_to_git_index(self, request, queryset: QuerySet[Release]):
-        for release in queryset:
-            release.make_git_entry()
+        run_index_action(
+            self, request, queryset, Release.make_git_entry, "published to the index"
+        )
 
     @admin.action(description="Yank release in git index")
     def yank_release_in_git_index(self, request, queryset: QuerySet[Release]):
-        for release in queryset:
-            release.yank_git_entry()
+        run_index_action(
+            self, request, queryset, Release.yank_git_entry, "yanked in the index"
+        )
 
 
 @admin.register(Asset)
@@ -175,5 +198,6 @@ class AssetAdmin(admin.ModelAdmin):
 
     @admin.action(description="Enter selected assets to git index")
     def add_to_git_index(self, request, queryset: QuerySet[Asset]):
-        for asset in queryset:
-            asset.make_git_entry()
+        run_index_action(
+            self, request, queryset, Asset.make_git_entry, "added to the index"
+        )
