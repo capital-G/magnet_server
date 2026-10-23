@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{# All allauth pages (sign in/up/out, email, password) use the site layout. #}
+
+{% block title %}{% block head_title %}{% endblock %} - magnet{% endblock %}
+
+{% block main %}
+<section class="section">
+    <div class="container is-max-tablet">
+        <div class="box">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+</section>
+{% endblock %}

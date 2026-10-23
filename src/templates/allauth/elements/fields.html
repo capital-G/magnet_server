@@ -1,0 +1,20 @@
+{% load form_tags %}
+{% for error in attrs.form.non_field_errors %}
+    <div class="notification is-danger">{{ error }}</div>
+{% endfor %}
+{% for field in attrs.form %}
+    {% if field.is_hidden %}
+        {{ field }}
+    {% elif field.widget_type == "checkbox" %}
+        <div class="field">
+            <label class="checkbox">{{ field }} {{ field.label }}</label>
+        </div>
+    {% else %}
+        <div class="field">
+            <label class="label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            <div class="control">{{ field|add_class:"input" }}</div>
+            {% for error in field.errors %}<p class="help is-danger">{{ error }}</p>{% endfor %}
+            {% if field.help_text %}<p class="help">{{ field.help_text|safe }}</p>{% endif %}
+        </div>
+    {% endif %}
+{% endfor %}

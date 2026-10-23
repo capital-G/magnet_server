@@ -4,7 +4,7 @@
 {% block description %}{{ release.summary }}{% endblock %}
 
 {% block content %}
-<div class="has-background-light py-5">
+<div class="page-header py-5">
     <div class="container">
         <p class="mb-2">
             <strong class="is-size-3">{{ project.name }}</strong>
@@ -16,7 +16,7 @@
             {% endif %}
         </p>
         {% if release.summary %}
-            <p class="has-text-grey-dark mb-3">{{ release.summary }}</p>
+            <p class="has-text-grey mb-3">{{ release.summary }}</p>
         {% endif %}
         <span class="tag is-link is-light">{{ project.get_kind_display }}</span>
     </div>

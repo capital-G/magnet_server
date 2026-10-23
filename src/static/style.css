@@ -8,6 +8,11 @@
     display: none !important;
 }
 
+/* like has-background-light, but follows the dark mode */
+.page-header {
+    background-color: var(--bulma-background);
+}
+
 .hero {
     background-color: var(--bulma-link) !important;
 }

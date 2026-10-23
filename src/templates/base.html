@@ -40,7 +40,15 @@
 </nav>
 
 <main>
-    {% block content %}{% endblock %}
+    {% if messages %}
+        <div class="container mt-4">
+            {% for message in messages %}
+                <div class="notification {% if message.level_tag == 'error' %}is-danger{% else %}is-{{ message.level_tag }}{% endif %}">{{ message }}</div>
+            {% endfor %}
+        </div>
+    {% endif %}
+    {# allauth pages wrap their content, see allauth/layouts/base.html #}
+    {% block main %}{% block content %}{% endblock %}{% endblock %}
 </main>
 
 <footer class="footer py-5 mt-6">
