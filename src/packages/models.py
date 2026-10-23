@@ -6,7 +6,6 @@ import uuid
 import semver
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core import validators
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q

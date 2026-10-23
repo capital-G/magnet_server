@@ -1,7 +1,5 @@
 from django.views.generic import DetailView, ListView, TemplateView
 from drf_spectacular.utils import (
-    OpenApiExample,
-    OpenApiParameter,
     OpenApiResponse,
     extend_schema,
 )
@@ -22,7 +20,7 @@ class HomeView(TemplateView):
     template_name = "home.html"
 
     def get_context_data(self, **kwargs):
-        context = super(HomeView, self).get_context_data(**kwargs)
+        context = super().get_context_data(**kwargs)
         context["project_count"] = Project.objects.all().count()
         context["release_count"] = Release.objects.all().count()
         return context

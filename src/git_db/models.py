@@ -1,5 +1,3 @@
-from typing import List
-
 from pydantic import BaseModel, Field
 
 from packages.models import Asset, Dependency, Release
@@ -98,8 +96,8 @@ class GitReleaseModel(BaseModel):
     version: str
     yanked: bool = Field(default=False)
 
-    dependencies: List[GitDependencyModel] = Field(default_factory=list)
-    assets: List[GitServerExtensionBinaryAssetModel | GitQuarkSourceAssetModel] = Field(
+    dependencies: list[GitDependencyModel] = Field(default_factory=list)
+    assets: list[GitServerExtensionBinaryAssetModel | GitQuarkSourceAssetModel] = Field(
         default_factory=list
     )
 

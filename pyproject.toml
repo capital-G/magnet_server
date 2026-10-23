@@ -23,8 +23,21 @@ dependencies = [
 DJANGO_SETTINGS_MODULE = "magnet.settings"
 python_files = ["**/tests/*.py"]
 
-[tool.isort]
-profile = "black"
+[tool.ruff]
+src = ["src"]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["F", "E", "I", "B", "UP", "DJ"]
+# line length is up to the formatter
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# settings variants extend the base settings via star import
+"src/magnet/settings_*.py" = ["F403", "F405"]
+"**/migrations/*.py" = ["E", "I", "UP"]
+# @todo remove in S1, which replaces the Asset fields and methods these refer to
+"src/packages/models.py" = ["DJ001", "DJ012"]
 
 [tool.mypy]
 plugins = [
@@ -46,4 +59,5 @@ dev = [
     "factory-boy>=3.3.3",
     "mypy==1.17",
     "pytest-django>=4.11.1",
+    "ruff>=0.17.2",
 ]

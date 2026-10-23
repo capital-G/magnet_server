@@ -48,3 +48,6 @@ class UserProfile(models.Model):
         default="",
         verbose_name=_("URL to personal website"),
     )
+
+    def __str__(self):
+        return str(self.user)

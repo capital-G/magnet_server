@@ -3,7 +3,6 @@ import subprocess
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
 
 from django.conf import settings
 
@@ -28,7 +27,7 @@ class GitDatabase:
     def __init__(self, repo_path: Path):
         self.repo_path = repo_path
 
-    def _run(self, *args: str, cwd: Optional[Path] = None) -> bytes:
+    def _run(self, *args: str, cwd: Path | None = None) -> bytes:
         try:
             return subprocess.check_output(
                 ["git", *args],
@@ -38,7 +37,7 @@ class GitDatabase:
         except subprocess.CalledProcessError as e:
             raise GitCommandError(
                 f"command '{e.cmd}' return with error (code {e.returncode}): {e.output.decode()}"
-            )
+            ) from e
 
     @contextmanager
     def temporary_checkout(self):

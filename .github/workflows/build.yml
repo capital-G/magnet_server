@@ -33,3 +33,7 @@ jobs:
       - name: Run tests
         run: uv run pytest
         working-directory: src/
+
+      - name: Run mypy
+        run: uv run mypy .
+        working-directory: src/

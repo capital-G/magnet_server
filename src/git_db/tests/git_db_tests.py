@@ -53,8 +53,7 @@ def test_empty_index_file(caplog, mathlib_release: Release):
         assert "Create new project index file" in caplog.records[0].message
 
         # should not fail to iterate over an empty file
-        for release in project_index_file.releases:
-            pass
+        assert list(project_index_file.releases) == []
 
 
 @pytest.mark.django_db
@@ -67,8 +66,8 @@ def test_existing_project_index_file_release(
             Path(temp_directory.name), mathlib_release.project
         )
 
-        for release, (version, checksum) in zip(
-            project_index_file.releases, [["1.0.0", "abc"], ["1.1.0", "def"]]
+        for release, version in zip(
+            project_index_file.releases, ["1.0.0", "1.1.0"], strict=True
         ):
             assert release.version == version
 
@@ -92,6 +91,6 @@ def test_project_index_add_release(
         project_index_file.add_release(release=mathlib_release)
 
         for release, version in zip(
-            project_index_file.releases, ["1.0.0", "1.1.0", "1.3.0"]
+            project_index_file.releases, ["1.0.0", "1.1.0", "1.3.0"], strict=True
         ):
             assert release.version == version

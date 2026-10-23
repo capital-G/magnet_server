@@ -1,11 +1,11 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from rest_framework.fields import SerializerMethodField
 from rest_framework.relations import SlugRelatedField
 
-from packages.models import Asset, Dependency, Project, Release, valid_semver
+from packages.models import Asset, Project, Release
 
 
 class AssetSerializer(serializers.ModelSerializer):
@@ -45,27 +45,27 @@ class ProjectSerializer(serializers.ModelSerializer):
 
     # project description are stored in releases, so we have take these attributes
     # from the latest release
-    def get_release_attribute(self, project: Project, attribute: str) -> Optional[Any]:
+    def get_release_attribute(self, project: Project, attribute: str) -> Any | None:
         if release := project.releases.last():
             return release.__getattribute__(attribute)
         return None
 
-    def get_description(self, project: Project) -> Optional[str]:
+    def get_description(self, project: Project) -> str | None:
         return self.get_release_attribute(project, attribute="description")
 
-    def get_summary(self, project: Project) -> Optional[str]:
+    def get_summary(self, project: Project) -> str | None:
         return self.get_release_attribute(project, attribute="summary")
 
-    def get_repository_url(self, project: Project) -> Optional[str]:
+    def get_repository_url(self, project: Project) -> str | None:
         return self.get_release_attribute(project, attribute="repository_url")
 
-    def get_home_page_url(self, project: Project) -> Optional[str]:
+    def get_home_page_url(self, project: Project) -> str | None:
         return self.get_release_attribute(project, attribute="home_page_url")
 
-    def get_bug_tracker_url(self, project: Project) -> Optional[str]:
+    def get_bug_tracker_url(self, project: Project) -> str | None:
         return self.get_release_attribute(project, attribute="bug_tracker_url")
 
-    def get_license(self, project: Project) -> Optional[str]:
+    def get_license(self, project: Project) -> str | None:
         return self.get_release_attribute(project, attribute="license")
 
     class Meta:
@@ -135,7 +135,7 @@ class ReleaseUploadSerializer(serializers.ModelSerializer):
             "license",
         ]
 
-    def to_internal_value(self, data: Dict[str, Any]) -> Release:
+    def to_internal_value(self, data: dict[str, Any]) -> Release:
         project = Project.objects.get(slug__exact=data["project"])
         release, _ = Release.objects.get_or_create(
             version=data["version"],
