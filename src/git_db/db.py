@@ -3,6 +3,7 @@ import logging
 import os
 import subprocess
 import tempfile
+from collections import defaultdict
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -177,6 +178,27 @@ class GitDatabase:
 
     def yank_release(self, release: Release) -> None:
         self.yank(name=release.project.normalized_name, version=release.version)
+
+    def rebuild(self) -> None:
+        """Regenerates all package files from the published releases in the
+        database, in one commit (D1.5: the index can always be regenerated).
+        Lines are in publish order; without changes, nothing is committed."""
+        package_files: dict[str, list[GitReleaseModel]] = defaultdict(list)
+        releases = (
+            Release.objects.filter(published_at__isnull=False)
+            .select_related("project")
+            .order_by("project__normalized_name", "published_at")
+        )
+        for release in releases:
+            package_files[release.project.normalized_name].append(
+                GitReleaseModel.from_release(release)
+            )
+
+        with self.transaction("rebuild index from the database") as checkout:
+            for path in checkout.glob("*/*.jsonl"):
+                path.unlink()
+            for name, lines in package_files.items():
+                ProjectIndexFile.for_name(checkout, name).write(lines)
 
 
 def get_git_database() -> GitDatabase:

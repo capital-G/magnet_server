@@ -94,7 +94,11 @@ class GitReleaseModel(BaseModel):
             # sorted, so the line doesn't depend on the order of the database rows
             dependencies=dict(sorted(dependencies.items())),
             yanked=release.yanked,
-            artifacts=[GitArtifactModel.from_asset(a) for a in release.assets.all()],
+            # upload order, which is the order artifacts got appended to the index
+            artifacts=[
+                GitArtifactModel.from_asset(a)
+                for a in release.assets.order_by("created", "abi", "platform")
+            ],
         )
 
     def to_json(self) -> str:
