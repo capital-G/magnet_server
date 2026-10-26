@@ -91,11 +91,15 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.DjangoModelPermissionsOrAnonReadOnly"
     ],
+    # OAuth2 first: DRF answers unauthenticated requests with the first class's
+    # `WWW-Authenticate` header, i.e. `401` instead of `403`
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework.authentication.SessionAuthentication",
         "oauth2_provider.contrib.rest_framework.OAuth2Authentication",
+        "rest_framework.authentication.SessionAuthentication",
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # every error is `{"detail": "<message>"}`, which the CLI prints
+    "EXCEPTION_HANDLER": "magnet.exceptions.api_exception_handler",
 }
 
 SPECTACULAR_SETTINGS = {
@@ -147,9 +151,11 @@ AUTHENTICATION_BACKENDS = [
 OAUTH2_PROVIDER = {
     # this is the list of available scopes
     "SCOPES": {
-        "read": "Read scope",
-        "write": "Write scope",
+        "read": "Read packages",
+        "publish": "Publish packages",
     },
+    # `magnet login` requests no scope, so it gets these
+    "DEFAULT_SCOPES": ["read", "publish"],
     "ACCESS_TOKEN_EXPIRE_SECONDS": 7200,
     "AUTHORIZATION_CODE_EXPIRE_SECONDS": 600,
 }
@@ -222,6 +228,14 @@ MAGNET_DOWNLOAD_BASE_URL = os.environ.get(
 # Base URL of this server, written as `api` into the index `config.json`,
 # so the CLI finds the server to log in and publish.
 MAGNET_API_BASE_URL = os.environ.get("MAGNET_API_BASE_URL", "http://localhost:8000/")
+
+# Redirect URIs of the CLI's OAuth application (space-separated), set by the data
+# migration `users/0002`. The CLI redirects to `<api url>/users/display-token`.
+MAGNET_OAUTH_REDIRECT_URIS = os.environ.get(
+    "MAGNET_OAUTH_REDIRECT_URIS",
+    "http://localhost:8000/users/display-token "
+    "http://127.0.0.1:8000/users/display-token",
+).split()
 
 # Markdown
 MARKDOWNIFY = {

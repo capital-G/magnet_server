@@ -10,11 +10,11 @@ fake = faker.Faker()
 class UserFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = User
-        skip_postgeneration_save = True
 
     username = factory.LazyAttribute(lambda _: fake.user_name())
     email = factory.LazyAttribute(lambda _: fake.email())
-    password = factory.PostGenerationMethodCall("set_password", "password")
+    # hashed when built; a post-generation `set_password` wasn't saved
+    password = factory.django.Password("password")
 
 
 class UserProfileFactory(factory.django.DjangoModelFactory):

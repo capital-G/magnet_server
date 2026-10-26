@@ -11,14 +11,14 @@ Class-based views
     1. Add an import:  from other_app.views import Home
     2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
 Including another URLconf
-    1. Import the include() function: from django.urls import include, path
+    1. Import the include() function: from django.urls import include, path, re_path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import include, path
+from django.urls import include, path, re_path
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -27,7 +27,7 @@ from drf_spectacular.views import (
 from oauth2_provider import urls as oauth2_urls
 from rest_framework_nested import routers
 
-from magnet.views import VersionApiView
+from magnet.views import ApiNotFoundView, VersionApiView
 from packages.views import ProjectViewSet, UploadReleaseView
 
 router = routers.DefaultRouter()
@@ -47,6 +47,8 @@ urlpatterns = [
         SpectacularSwaggerView.as_view(url_name="schema"),
         name="swagger",
     ),
+    # after all API routes: JSON instead of HTML for unknown API paths
+    re_path(r"^api/", ApiNotFoundView.as_view()),
     path("admin/", admin.site.urls),
     path("accounts/", include("allauth.urls")),
     path("users/", include("users.urls")),

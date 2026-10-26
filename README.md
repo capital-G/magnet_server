@@ -38,6 +38,13 @@ Releases can also be published by hand:
 docker compose exec server python manage.py publish --help
 ```
 
+`magnet login` works without any setup (a migration creates the CLI's OAuth application).
+For scripts and CI, create a token and pass it as `MAGNET_TOKEN`:
+
+```shell
+docker compose exec server python manage.py create_token --user you@example.org --days 30
+```
+
 The index and the artifacts live in the volumes `index` and `artifacts`; `docker compose down -v` resets everything.
 The index can always be regenerated from the database with `python manage.py rebuild_index`.
 
@@ -55,6 +62,7 @@ Variable | Default | Comment
 `MAGNET_ARTIFACTS_ROOT` | `~/git/magnet/magnet_artifacts` | artifacts, stored at their download path
 `MAGNET_DOWNLOAD_BASE_URL` | `http://localhost:8000/` | base URL of the `dl` template in the index `config.json`
 `MAGNET_API_BASE_URL` | `http://localhost:8000/` | `api` in the index `config.json`, where the CLI logs in and publishes
+`MAGNET_OAUTH_REDIRECT_URIS` | `http://localhost:8000/users/display-token http://127.0.0.1:8000/users/display-token` | redirect URIs of the CLI's OAuth application (applied by a migration)
 
 `manage.py init_index` rewrites `config.json` when one of the URLs changed.
 
