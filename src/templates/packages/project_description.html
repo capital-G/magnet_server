@@ -1,6 +1,8 @@
 {% load markdownify %}
 
-{% if release.description %}
+{% if release.readme %}
+    <div class="content text">{{ release.readme | markdownify }}</div>
+{% elif release.description %}
     <div class="content text">{{ release.description | markdownify }}</div>
 {% else %}
     <p class="has-text-grey">No description provided.</p>

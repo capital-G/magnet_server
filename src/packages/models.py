@@ -48,10 +48,17 @@ def asset_upload_to(asset: "Asset", filename: str) -> str:
     return artifact_path(
         name=release.project.normalized_name,
         version=release.version,
-        kind=release.project.kind,
+        kind=release.artifact_kind,
         abi=asset.abi,
         platform=asset.platform,
     )
+
+
+class ProjectQuerySet(models.QuerySet):
+    def public(self) -> "ProjectQuerySet":
+        """Projects with at least one final release; the others are only visible
+        to their owners and maintainers."""
+        return self.filter(releases__published_at__isnull=False).distinct()
 
 
 class Project(models.Model):
@@ -103,6 +110,9 @@ class Project(models.Model):
     kind = models.CharField(
         max_length=16,
         choices=Kind.choices,
+        blank=True,
+        default="",
+        help_text=_("Set by the first final release, empty until then"),
     )
 
     slug = models.SlugField(
@@ -128,6 +138,8 @@ class Project(models.Model):
         blank=True,
     )
 
+    objects = ProjectQuerySet.as_manager()
+
     class Meta:
         verbose_name = _("Project")
         verbose_name_plural = _("Projects")
@@ -141,6 +153,12 @@ class Project(models.Model):
         if not self.slug:
             self.slug = self.normalized_name
         super().save(*args, **kwargs)
+
+    def can_publish(self, user) -> bool:
+        """Whether `user` may create, upload to, finalise and delete drafts."""
+        return user.is_authenticated and (
+            self.owner_id == user.pk or self.maintainers.filter(pk=user.pk).exists()
+        )
 
     def clean(self):
         # Model forms exclude non-editable fields from the unique checks,
@@ -203,6 +221,15 @@ class Dependency(models.Model):
             )
 
 
+class ReleaseQuerySet(models.QuerySet):
+    def final(self) -> "ReleaseQuerySet":
+        """Releases which are in the index (D2.3), the others are drafts."""
+        return self.filter(published_at__isnull=False)
+
+    def drafts(self) -> "ReleaseQuerySet":
+        return self.filter(published_at__isnull=True)
+
+
 class Release(models.Model):
     """A release acts as a version of a project.
     It is also possible to attach multiple assets to a release.
@@ -231,7 +258,10 @@ class Release(models.Model):
         blank=True,
         null=True,
         editable=False,
-        help_text=_("The date and time the release was written to the index"),
+        help_text=_(
+            "The date and time the release was written to the index. "
+            "Releases without are drafts."
+        ),
     )
 
     project = models.ForeignKey(
@@ -245,6 +275,22 @@ class Release(models.Model):
         max_length=60,
         help_text=_("The version of the release as MAJOR.MINOR.PATCH, e.g. 2.10.0"),
         validators=[validate_version],
+    )
+
+    # from the manifest of the first artifact, empty for a draft without artifacts
+    kind = models.CharField(
+        max_length=16,
+        choices=Project.Kind.choices,
+        blank=True,
+        default="",
+    )
+
+    sclang = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        validators=[validate_version_req],
+        help_text=_("Supported SuperCollider versions, e.g. >=3.13"),
     )
 
     # set from version on save, so releases can be ordered by version
@@ -262,6 +308,12 @@ class Release(models.Model):
         blank=True,
         default="",
         help_text=_("A description of the project. Supports markdown formatting."),
+    )
+
+    readme = models.TextField(
+        blank=True,
+        default="",
+        help_text=_("The readme of the package as Markdown"),
     )
 
     release_note = models.TextField(
@@ -321,6 +373,8 @@ class Release(models.Model):
         symmetrical=False,
     )
 
+    objects = ReleaseQuerySet.as_manager()
+
     class Meta:
         # newest version first
         ordering = (
@@ -346,11 +400,16 @@ class Release(models.Model):
         )
         super().save(*args, **kwargs)
 
-    def make_git_entry(self):
-        # avoid circular imports
-        from git_db.db import get_git_database
+    @property
+    def is_final(self) -> bool:
+        return self.published_at is not None
 
-        get_git_database().commit_release(self)
+    @property
+    def artifact_kind(self) -> str:
+        """The kind, which is set before the release gets artifacts."""
+        if not self.kind:
+            raise ValueError(f"{self} has no kind yet")
+        return self.kind
 
     def yank_git_entry(self):
         from git_db.db import get_git_database
@@ -473,7 +532,7 @@ class Asset(models.Model):
     def clean(self):
         if (
             self.release_id
-            and self.release.project.kind == Project.Kind.quark
+            and self.release.kind == Project.Kind.quark
             and (self.abi, self.platform) != (ANY, ANY)
         ):
             raise ValidationError(
@@ -496,11 +555,10 @@ class Asset(models.Model):
 
     @property
     def identifier(self) -> str:
-        project = self.release.project
         return artifact_filename(
-            name=project.normalized_name,
+            name=self.release.project.normalized_name,
             version=self.release.version,
-            kind=project.kind,
+            kind=self.release.artifact_kind,
             abi=self.abi,
             platform=self.platform,
         ).removesuffix(".tar.gz")

@@ -7,12 +7,22 @@
         </tr>
     </thead>
     <tbody>
-        {% for release in project.releases.all %}
+        {% for release in releases %}
         <tr>
             <td>
                 <a href="{% url 'project-detail' project.slug %}?version={{ release.version }}"><strong>{{ release.version }}</strong></a>
                 {% if release.yanked %}
                     <span class="tag is-danger is-light is-small ml-1">yanked</span>
+                {% endif %}
+                {% if not release.is_final %}
+                    <span class="tag is-warning is-light is-small ml-1">draft</span>
+                    {% if can_publish %}
+                        <button class="button is-small is-danger is-light ml-1"
+                                hx-post="{% url 'delete-draft' project.slug release.version %}"
+                                hx-confirm="Delete the draft {{ release.version }} with its artifacts?">
+                            Delete
+                        </button>
+                    {% endif %}
                 {% endif %}
             </td>
             <td class="has-text-grey is-size-7">{{ release.created|timesince }} ago</td>

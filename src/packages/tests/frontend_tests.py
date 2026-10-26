@@ -27,7 +27,7 @@ def manifest_static(settings, tmp_path):
 @pytest.mark.django_db
 @pytest.mark.usefixtures("manifest_static")
 def test_pages_render_with_vendored_assets(client):
-    release = ReleaseFactory(project__name="alpha", version="1.0.0")
+    release = ReleaseFactory(project__name="alpha", version="1.0.0", final=True)
 
     for url in [
         reverse("home"),

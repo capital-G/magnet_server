@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from django.contrib.auth.models import User
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files import File
 from django.core.management import BaseCommand, CommandError
 
@@ -126,6 +126,6 @@ class Command(BaseCommand):
                 )
         except ValidationError as e:
             raise CommandError(f"{release}: {'; '.join(e.messages)}") from e
-        except (IndexWriteError, GitCommandError) as e:
+        except (PermissionDenied, IndexWriteError, GitCommandError) as e:
             raise CommandError(f"{release}: {e}") from e
         self.stdout.write(f"Published {release}")

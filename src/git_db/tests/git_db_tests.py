@@ -316,13 +316,13 @@ def test_concurrent_writes_all_end_up_in_the_index(index: GitDatabase):
 
 @pytest.mark.django_db
 def test_admin_reports_index_errors(admin_client, index: GitDatabase):
-    release = ReleaseFactory.create()  # no artifacts
+    release = ReleaseFactory.create()  # a draft without artifacts
 
     response = admin_client.post(
-        reverse("admin:packages_release_changelist"),
+        reverse("admin:packages_release_changelist") + "?state=draft",
         {"action": "add_to_git_index", "_selected_action": [release.pk]},
         follow=True,
     )
 
     assert response.status_code == 200
-    assert "has no artifacts" in response.content.decode()
+    assert "needs its any-any artifact" in response.content.decode()

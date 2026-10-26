@@ -101,7 +101,8 @@ class GitReleaseModel(BaseModel):
         return cls(
             name=project.normalized_name,
             version=release.version,
-            kind=project.kind,
+            kind=release.artifact_kind,
+            sclang=release.sclang or None,
             # sorted, so the line doesn't depend on the order of the database rows
             dependencies=dict(sorted(dependencies.items())),
             yanked=release.yanked,

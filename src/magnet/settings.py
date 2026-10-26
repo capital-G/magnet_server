@@ -272,6 +272,10 @@ MARKDOWNIFY = {
             "th",
             "tr",
             "td",
+            "code",
+            "pre",
+            "br",
+            "hr",
         ],
         "MARKDOWN_EXTENSIONS": [
             "markdown.extensions.extra",
@@ -281,6 +285,7 @@ MARKDOWNIFY = {
             "PARSE_URLS": True,
             "PARSE_EMAIL": True,
         },
-        "BLEACH": False,
+        # descriptions and readmes come from uploaded packages
+        "BLEACH": True,
     }
 }

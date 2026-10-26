@@ -1,6 +1,7 @@
 from collections.abc import Callable, Iterable
 
 from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
 from django.db.models import Model, QuerySet
 
 from git_db.db import GitCommandError
@@ -13,19 +14,24 @@ from packages.models import (
     Release,
     ReservedName,
 )
+from packages.services import finalise_release
 
 
 def run_index_action[T: Model](
     model_admin: admin.ModelAdmin,
     request,
     objects: Iterable[T],
-    action: Callable[[T], None],
+    action: Callable[[T], object],
     done: str,
 ) -> None:
     """Runs an index write per object and reports each result as a message."""
     for obj in objects:
         try:
             action(obj)
+        except ValidationError as e:
+            model_admin.message_user(
+                request, f"{obj}: {'; '.join(e.messages)}", messages.ERROR
+            )
         except (IndexWriteError, GitCommandError) as e:
             model_admin.message_user(request, f"{obj}: {e}", messages.ERROR)
         else:
@@ -111,11 +117,42 @@ class AssetInline(admin.TabularInline):
     readonly_fields = fields  # type: ignore
 
 
+class ReleaseStateFilter(admin.SimpleListFilter):
+    """Final releases by default, drafts on request."""
+
+    title = "state"
+    parameter_name = "state"
+
+    def lookups(self, request, model_admin):
+        return [("final", "Final"), ("draft", "Draft"), ("all", "All")]
+
+    def queryset(self, request, queryset):
+        match self.value():
+            case "draft":
+                return queryset.drafts()
+            case "all":
+                return queryset
+            case _:
+                return queryset.final()
+
+    def choices(self, changelist):
+        # without Django's own "All" entry, which would mean "final" here
+        for lookup, title in self.lookup_choices:
+            yield {
+                "selected": (self.value() or "final") == lookup,
+                "query_string": changelist.get_query_string(
+                    {self.parameter_name: lookup}
+                ),
+                "display": title,
+            }
+
+
 @admin.register(Release)
 class ReleaseAdmin(admin.ModelAdmin):
     list_display = [
         "project",
         "version",
+        "kind",
         "created",
         "published_at",
         "yanked",
@@ -138,7 +175,8 @@ class ReleaseAdmin(admin.ModelAdmin):
     ]
 
     list_filter = [
-        "project__kind",
+        ReleaseStateFilter,
+        "kind",
         "created",
         "last_update",
         "yanked",
@@ -155,10 +193,10 @@ class ReleaseAdmin(admin.ModelAdmin):
         "yank_release_in_git_index",
     ]
 
-    @admin.action(description="Add release to git index")
+    @admin.action(description="Finalise (add release to git index)")
     def add_to_git_index(self, request, queryset: QuerySet[Release]):
         run_index_action(
-            self, request, queryset, Release.make_git_entry, "published to the index"
+            self, request, queryset, finalise_release, "published to the index"
         )
 
     @admin.action(description="Yank release in git index")

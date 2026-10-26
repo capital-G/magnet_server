@@ -1,4 +1,12 @@
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
+from django.db.models import Prefetch, Q
+from django.http import Http404, HttpResponse
+from django.shortcuts import redirect
+from django.urls import reverse
+from django.views.decorators.http import require_POST
 from django.views.generic import DetailView, ListView, TemplateView
+from django_htmx.http import HttpResponseClientRedirect
 from drf_spectacular.utils import (
     OpenApiResponse,
     extend_schema,
@@ -14,6 +22,7 @@ from packages.serializers import (
     ProjectDetailSerializer,
     ProjectSerializer,
 )
+from packages.services import Conflict, delete_draft
 
 
 class HomeView(TemplateView):
@@ -21,8 +30,8 @@ class HomeView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["project_count"] = Project.objects.all().count()
-        context["release_count"] = Release.objects.all().count()
+        context["project_count"] = Project.objects.public().count()
+        context["release_count"] = Release.objects.final().count()
         return context
 
 
@@ -32,9 +41,18 @@ class ProjectsList(ListView):
     context_object_name = "projects"
 
     def get_queryset(self):
-        qs = Project.objects.prefetch_related("releases")
+        qs = Project.objects.public().prefetch_related(
+            Prefetch("releases", queryset=Release.objects.final())
+        )
         if q := self.request.GET.get("q", "").strip():
-            qs = qs.filter(name__icontains=q)
+            qs = qs.filter(
+                Q(name__icontains=q)
+                | Q(normalized_name__icontains=q)
+                | Q(
+                    releases__summary__icontains=q,
+                    releases__published_at__isnull=False,
+                )
+            ).distinct()
         return qs
 
     def get_template_names(self):
@@ -48,24 +66,34 @@ class ProjectDetail(DetailView):
     context_object_name = "project"
     template_name = "packages/project_detail.html"
 
-    def get_queryset(self):
-        return Project.objects.prefetch_related(
-            "releases",
-            "releases__assets",
-            "releases__dependencies_from__dependency",
+    def get_object(self, queryset=None):
+        """Projects without a final release only exist for their owners and
+        maintainers, who also see the drafts."""
+        project = super().get_object(queryset)
+        self.can_publish = project.can_publish(self.request.user)
+        releases = project.releases.all()
+        if not self.can_publish:
+            releases = releases.final()
+        self.releases = list(
+            releases.prefetch_related("assets", "dependencies_from__dependency")
         )
+        if not any(release.is_final for release in self.releases) and not (
+            self.can_publish
+        ):
+            raise Http404
+        return project
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["release"] = None
-        if version := self.request.GET.get("version"):
-            context["release"] = self.object.releases.filter(
-                version=version,
-            ).first()
-        if not context["release"]:
-            context["release"] = (
-                self.object.releases.first() if self.object.releases.exists() else None
-            )
+        version = self.request.GET.get("version")
+        final = [release for release in self.releases if release.is_final]
+        context["releases"] = self.releases
+        context["can_publish"] = self.can_publish
+        context["release"] = next(
+            (r for r in self.releases if r.version == version),
+            # the newest final release, or the newest draft if there is none
+            next(iter(final or self.releases), None),
+        )
         return context
 
 
@@ -78,9 +106,38 @@ class AssetDetail(DetailView):
     def get_queryset(self):
         return Asset.objects.select_related("release__project", "uploader")
 
+    def get_object(self, queryset=None):
+        asset = super().get_object(queryset)
+        release = asset.release
+        if not release.is_final and not release.project.can_publish(self.request.user):
+            raise Http404
+        return asset
+
+
+@require_POST
+@login_required
+def delete_draft_view(request, slug: str, version: str) -> HttpResponse:
+    release = get_object_or_404(Release, project__slug=slug, version=version)
+    try:
+        delete_draft(request.user, release)
+    except PermissionDenied:
+        return HttpResponse("You can't delete this draft.", status=403)
+    except Conflict as e:
+        return HttpResponse(str(e), status=409)
+    url = reverse("project-detail", args=[slug])
+    if request.htmx:
+        return HttpResponseClientRedirect(url)
+    return redirect(url)
+
 
 class ProjectViewSet(viewsets.ViewSet):
-    queryset = Project.objects.all()
+    """Projects with their final releases (drafts are not public)."""
+
+    queryset = Project.objects.public().prefetch_related(
+        Prefetch(
+            "releases", queryset=Release.objects.final().prefetch_related("assets")
+        )
+    )
     lookup_field = "slug"
 
     @extend_schema(
@@ -90,7 +147,7 @@ class ProjectViewSet(viewsets.ViewSet):
     )
     def list(self, request):
         """List all available projects."""
-        serializer = ProjectSerializer(self.queryset, many=True)
+        serializer = ProjectSerializer(self.queryset.all(), many=True)
         return Response(serializer.data)
 
     @extend_schema(
@@ -100,7 +157,7 @@ class ProjectViewSet(viewsets.ViewSet):
     )
     def retrieve(self, request, slug=None):
         """Retrieve a specific project and also returns its releases."""
-        project = get_object_or_404(Project, slug=slug)
+        project = get_object_or_404(self.queryset.all(), slug=slug)
         serializer = ProjectDetailSerializer(project)
         return Response(serializer.data)
 

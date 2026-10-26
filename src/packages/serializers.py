@@ -39,12 +39,11 @@ class ProjectSerializer(serializers.ModelSerializer):
     bug_tracker_url = SerializerMethodField()
     license = SerializerMethodField()
 
-    queryset = Project.objects.all().prefetch_related("releases")
-
     # project description are stored in releases, so we have take these attributes
-    # from the latest release (releases are ordered newest first)
+    # from the latest release (releases are ordered newest first; the views
+    # prefetch only the final ones)
     def get_release_attribute(self, project: Project, attribute: str) -> Any | None:
-        if release := project.releases.first():
+        if release := next(iter(project.releases.all()), None):
             return release.__getattribute__(attribute)
         return None
 

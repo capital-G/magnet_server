@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files import File
 from django.core.management import BaseCommand, CommandError
 
@@ -74,7 +74,7 @@ class Command(BaseCommand):
                 )
         except ValidationError as e:
             raise CommandError("; ".join(e.messages)) from e
-        except (IndexWriteError, GitCommandError) as e:
+        except (PermissionDenied, IndexWriteError, GitCommandError) as e:
             raise CommandError(str(e)) from e
 
         asset = release.assets.get()

@@ -20,7 +20,7 @@
     </p>
 </div>
 
-{% if release %}
+{% if release.is_final %}
 <div class="box">
     <p class="has-text-weight-bold mb-3">Install</p>
     <p class="is-size-7 has-text-grey mb-2">Magnet CLI:</p>
@@ -41,7 +41,7 @@
     {% if release.home_page_url %}
     <p class="mb-3">
         <span class="has-text-weight-bold">Homepage</span><br>
-        <a class="is-size-7" href="{{ relesae.home_page_url }}" rel="noopener noreferrer">
+        <a class="is-size-7" href="{{ release.home_page_url }}" rel="noopener noreferrer">
             {{ release.home_page_url|truncatechars:40 }}
         </a>
     </p>

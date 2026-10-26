@@ -12,6 +12,7 @@ from git_db.tests.git_db_tests import commits, show
 from packages.models import Project, Release
 from packages.tests.factories import quark_tar_gz
 from packages.validators import normalize_name
+from users.tests.factories import UserFactory
 
 CLI_FIXTURES = Path(
     os.environ.get(
@@ -247,3 +248,17 @@ def test_seed_real_cli_fixtures(index: GitDatabase):
     log = commits(index.repo_path)
     call_command("rebuild_index")
     assert commits(index.repo_path) == log
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("index")
+def test_publish_command_checks_the_owner(tmp_path: Path, admin_user):
+    other = UserFactory.create()
+    publish(tmp_path, *("--name", "alpha", "--version", "1.0.0", "--kind", "quark"))
+
+    with pytest.raises(CommandError, match="not an owner or maintainer of alpha"):
+        publish(
+            tmp_path,
+            *("--name", "alpha", "--version", "1.0.1", "--kind", "quark"),
+            *("--owner", other.username),
+        )

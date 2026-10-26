@@ -1,5 +1,3 @@
-import gzip
-import io
 import json
 import subprocess
 import tarfile
@@ -10,65 +8,10 @@ from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 
 from packages.archive import SCHEMA_PATH, inspect_artifact
+from packages.tests.factories import LEPTON_MANIFEST, QUARK_MANIFEST, quark, tar_gz
 from packages.validators import validate_artifact_archive
 
 MAGNET_CLI = Path(__file__).resolve().parents[4] / "magnet_cli"
-
-QUARK_MANIFEST = """\
-magnet-version = 1
-
-[package]
-name = "foo"
-version = "1.0.0"
-kind = "quark"
-sclang = ">=3.13"
-
-[metadata]
-summary = "A test quark"
-
-[artifact]
-global-paths = ["Classes/**.sc", "HelpSource/**/*"]
-exclude = ["Classes/Private/**"]
-"""
-
-LEPTON_MANIFEST = """\
-magnet-version = 1
-
-[package]
-name = "foo"
-version = "1.0.0"
-kind = "lepton"
-
-[artifact]
-global-paths = ["Classes/**.sc"]
-platform-paths = { macos_arm64 = ["build/*.scx"] }
-source-paths = ["Classes/**", "src/**", "CMakeLists.txt"]
-"""
-
-
-def tar_gz(*members: tuple[str, bytes] | tarfile.TarInfo) -> bytes:
-    """An archive like the CLI writes it (ustar), with files `(path, content)`
-    or raw members."""
-    buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w", format=tarfile.USTAR_FORMAT) as tar:
-        for member in members:
-            if isinstance(member, tarfile.TarInfo):
-                tar.addfile(member)
-            else:
-                info = tarfile.TarInfo(member[0])
-                info.size = len(member[1])
-                tar.addfile(info, io.BytesIO(member[1]))
-    return gzip.compress(buffer.getvalue(), mtime=0)
-
-
-def quark(*extra: tuple[str, bytes] | tarfile.TarInfo, manifest=QUARK_MANIFEST):
-    return tar_gz(
-        ("Classes/Foo.sc", b"Foo {}\n"),
-        ("HelpSource/Classes/Foo.schelp", b"title:: Foo\n"),
-        ("README.md", b"# Foo\n"),
-        ("magnet.toml", manifest.encode()),
-        *extra,
-    )
 
 
 def inspect(data: bytes, abi: str = "any", platform: str = "any"):
@@ -256,18 +199,18 @@ def test_lepton_artifacts():
         ("CMakeLists.txt", b""), ("Classes/Foo.sc", b""), manifest, ("src/Foo.cpp", b"")
     )
 
-    assert inspect(binary, abi="api3", platform="macos_arm64").manifest["package"][
+    assert inspect(binary, abi="api3_0", platform="macos_arm64").manifest["package"][
         "kind"
     ] == ("lepton")
     inspect(source, abi="source", platform="any")
     with pytest.raises(ValidationError, match="src/Foo.cpp"):
-        inspect(source, abi="api3", platform="macos_arm64")
+        inspect(source, abi="api3_0", platform="macos_arm64")
     with pytest.raises(ValidationError, match="plugins/Foo.scx"):
         inspect(binary, abi="source", platform="any")
     with pytest.raises(ValidationError, match="plugins/sub/Foo.scx"):
         inspect(
             tar_gz(manifest, ("plugins/sub/Foo.scx", b"")),
-            abi="api3",
+            abi="api3_0",
             platform="macos_arm64",
         )
 
@@ -283,7 +226,7 @@ def test_lepton_binaries_need_platform_paths_for_their_platform(platform):
     with pytest.raises(
         ValidationError, match=f"There are no `platform-paths` for {platform}"
     ):
-        inspect(binary, abi="api3", platform=platform)
+        inspect(binary, abi="api3_0", platform=platform)
 
 
 def test_unknown_platform_in_manifest():
@@ -376,7 +319,7 @@ def test_lepton_artifacts_of_the_real_cli(tmp_path):
         env={
             "HOME": str(tmp_path),
             "PATH": "/usr/bin:/bin",
-            "MAGNET_ABI": "api3",
+            "MAGNET_ABI": "api3_0",
             "MAGNET_PLATFORM": "macos_arm64",
         },
         check=True,
@@ -385,8 +328,8 @@ def test_lepton_artifacts_of_the_real_cli(tmp_path):
 
     dist = tmp_path / "dist"
     binary = inspect(
-        (dist / "foo-1.0.0-lepton-api3-macos_arm64.tar.gz").read_bytes(),
-        abi="api3",
+        (dist / "foo-1.0.0-lepton-api3_0-macos_arm64.tar.gz").read_bytes(),
+        abi="api3_0",
         platform="macos_arm64",
     )
     source = inspect(

@@ -13,6 +13,9 @@
                 {% if release.yanked %}
                     <span class="tag is-danger is-light ml-2">yanked</span>
                 {% endif %}
+                {% if not release.is_final %}
+                    <span class="tag is-warning is-light ml-2">draft</span>
+                {% endif %}
             {% endif %}
         </p>
         {% if release.summary %}
@@ -30,7 +33,7 @@
             </li>
             <li :class="{ 'is-active': tab === 'versions' }">
                 <a @click.prevent="tab = 'versions'">
-                    {{ project.releases.count }} Version{{ project.releases.count|pluralize }}
+                    {{ releases|length }} Version{{ releases|length|pluralize }}
                 </a>
             </li>
             <li :class="{ 'is-active': tab === 'deps' }">
