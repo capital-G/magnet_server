@@ -20,7 +20,7 @@ class Command(BaseCommand):
         "Publishes the fixture packages of the magnet CLI (`tests/fixtures` of "
         "magnet_cli: `index/*/*.jsonl` and their tarballs in `dl/`), so the real CLI "
         "can be tested against this server. Lines the server can't publish yet "
-        "(non-quarks, legacy dependencies) are skipped. Already published releases "
+        "(non-quarks, legacy dependencies) and lines without a tarball are skipped. Already published releases "
         "are skipped too, so it's safe to run repeatedly."
     )
 
@@ -42,7 +42,9 @@ class Command(BaseCommand):
         owner = resolve_owner(options["owner"])
 
         lines = [
-            line for line in self.read_index(index_dir) if self.is_publishable(line)
+            line
+            for line in self.read_index(index_dir)
+            if self.is_publishable(line, dl_dir)
         ]
 
         # dependencies must refer to existing projects, so create all of them
@@ -72,7 +74,7 @@ class Command(BaseCommand):
             ]
         return lines
 
-    def is_publishable(self, line: dict[str, Any]) -> bool:
+    def is_publishable(self, line: dict[str, Any], dl_dir: Path) -> bool:
         release = f"{line['name']} {line['version']}"
         if line["kind"] != Project.Kind.quark:
             self.stderr.write(self.style.WARNING(f"Skip {release}: not a quark"))
@@ -85,7 +87,17 @@ class Command(BaseCommand):
                 self.style.WARNING(f"Skip {release}: not a single any/any artifact")
             )
             return False
+        # some fixtures only exist for the resolver tests and have fake checksums
+        path = self.tarball(line, dl_dir)
+        if not path.is_file():
+            self.stderr.write(self.style.WARNING(f"Skip {release}: no {path.name}"))
+            return False
         return True
+
+    def tarball(self, line: dict[str, Any], dl_dir: Path) -> Path:
+        return dl_dir / artifact_filename(
+            line["name"], line["version"], line["kind"], ANY, ANY
+        )
 
     def publish(self, line: dict[str, Any], dl_dir: Path, owner: User) -> None:
         name, version, kind = line["name"], line["version"], line["kind"]
@@ -96,7 +108,7 @@ class Command(BaseCommand):
             self.stdout.write(f"Skip {release}: already published")
             return
 
-        path = dl_dir / artifact_filename(name, version, kind, ANY, ANY)
+        path = self.tarball(line, dl_dir)
         expected = line["artifacts"][0]["sha256"]
         if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             raise CommandError(f"{path} doesn't match the sha256 of {release}")

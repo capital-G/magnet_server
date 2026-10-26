@@ -219,6 +219,10 @@ MAGNET_DOWNLOAD_BASE_URL = os.environ.get(
     "MAGNET_DOWNLOAD_BASE_URL", "http://localhost:8000/"
 )
 
+# Base URL of this server, written as `api` into the index `config.json`,
+# so the CLI finds the server to log in and publish.
+MAGNET_API_BASE_URL = os.environ.get("MAGNET_API_BASE_URL", "http://localhost:8000/")
+
 # Markdown
 MARKDOWNIFY = {
     "default": {

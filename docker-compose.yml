@@ -24,6 +24,7 @@ services:
       - GIT_INDEX_REPO_PATH=/srv/git/magnet_index.git
       - MAGNET_ARTIFACTS_ROOT=/srv/artifacts
       - MAGNET_DOWNLOAD_BASE_URL=http://localhost:${NGINX_PORT:-8080}/
+      - MAGNET_API_BASE_URL=http://localhost:${MAGNET_PORT:-8000}/
     volumes:
       - index:/srv/git
       - artifacts:/srv/artifacts

@@ -30,6 +30,10 @@ class GitIndexConfigModel(BaseModel):
     # URL template of an artifact with the placeholders
     # `{name}`, `{version}`, `{kind}`, `{abi}` and `{platform}`
     dl: str
+    # base URL of the static HTTP mirror of the index, unset until it exists (S16)
+    http: str | None = None
+    # base URL of this server, used by the CLI to log in and publish
+    api: str | None = None
 
     @classmethod
     def from_settings(cls) -> "GitIndexConfigModel":
@@ -41,10 +45,15 @@ class GitIndexConfigModel(BaseModel):
             platform="{platform}",
         )
         base_url = settings.MAGNET_DOWNLOAD_BASE_URL.rstrip("/")
-        return cls(dl=f"{base_url}/{template}")
+        return cls(dl=f"{base_url}/{template}", api=settings.MAGNET_API_BASE_URL)
 
     def to_json(self) -> str:
-        return to_json({"index-format": self.index_format, "dl": self.dl})
+        data = {"index-format": self.index_format, "dl": self.dl}
+        # optional keys in contract order, omitted when unset
+        for key in ("http", "api"):
+            if (value := getattr(self, key)) is not None:
+                data[key] = value
+        return to_json(data)
 
 
 class GitArtifactModel(BaseModel):
@@ -75,6 +84,8 @@ class GitReleaseModel(BaseModel):
     name: str
     version: str
     kind: str
+    # supported SuperCollider versions (a VersionReq), omitted from the line if unset
+    sclang: str | None = None
     # normalized name of the dependency -> version requirement
     dependencies: dict[str, str]
     yanked: bool = False
@@ -102,4 +113,7 @@ class GitReleaseModel(BaseModel):
         )
 
     def to_json(self) -> str:
-        return to_json(self.model_dump())
+        data = self.model_dump()
+        if data["sclang"] is None:
+            del data["sclang"]
+        return to_json(data)

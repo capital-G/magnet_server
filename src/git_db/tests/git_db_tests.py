@@ -15,7 +15,7 @@ from git_db.db import (
     get_git_database,
 )
 from git_db.files import DuplicateIndexEntry, IndexEntryMissing, KindMismatch
-from git_db.models import GitArtifactModel, GitReleaseModel
+from git_db.models import GitArtifactModel, GitIndexConfigModel, GitReleaseModel
 from packages.models import Project, Release
 from packages.tests.factories import (
     AssetFactory,
@@ -67,7 +67,8 @@ def test_golden_index(index: GitDatabase):
 
     assert show(index.repo_path, "config.json") == (
         '{"index-format": 1, "dl": "http://localhost:8000/dl/{name}/{version}/'
-        '{name}-{version}-{kind}-{abi}-{platform}.tar.gz"}\n'
+        '{name}-{version}-{kind}-{abi}-{platform}.tar.gz", '
+        '"api": "http://localhost:8000/"}\n'
     )
     assert show(index.repo_path, "a/alpha.jsonl") == (
         '{"name": "alpha", "version": "1.0.0", "kind": "quark", "dependencies": {}, '
@@ -94,6 +95,43 @@ def test_line_round_trips_cli_fixture():
         '"sha256": "de5baa9f2f62954446e1c2ebd5fb5a4959de4f40214ab05c8ee73a274558ade6"}]}'
     )
     assert GitReleaseModel(**json.loads(line)).to_json() == line
+
+
+def test_config_with_http_mirror():
+    config = GitIndexConfigModel(
+        dl="https://example.org/dl/{name}.tar.gz",
+        http="https://example.org/index/",
+        api="https://example.org/",
+    )
+    assert config.to_json() == (
+        '{"index-format": 1, "dl": "https://example.org/dl/{name}.tar.gz", '
+        '"http": "https://example.org/index/", "api": "https://example.org/"}'
+    )
+
+
+def test_config_without_optional_keys():
+    config = GitIndexConfigModel(dl="https://example.org/dl/{name}.tar.gz")
+    assert config.to_json() == (
+        '{"index-format": 1, "dl": "https://example.org/dl/{name}.tar.gz"}'
+    )
+
+
+def test_line_with_sclang():
+    line = GitReleaseModel(
+        name="alpha",
+        version="1.0.0",
+        kind="quark",
+        sclang=">=3.13",
+        dependencies={},
+        artifacts=[GitArtifactModel(abi="any", platform="any", sha256=SHA)],
+    )
+    expected = (
+        '{"name": "alpha", "version": "1.0.0", "kind": "quark", "sclang": ">=3.13", '
+        '"dependencies": {}, "yanked": false, "artifacts": [{"abi": "any", '
+        f'"platform": "any", "sha256": "{SHA}"}}]}}'
+    )
+    assert line.to_json() == expected
+    assert GitReleaseModel(**json.loads(expected)).to_json() == expected
 
 
 @pytest.mark.django_db
@@ -215,6 +253,13 @@ def test_init_index_is_idempotent_and_updates_the_config(settings):
     assert len(commits(git_database.repo_path)) == 2
     config = json.loads(show(git_database.repo_path, "config.json"))
     assert config["dl"].startswith("http://localhost:8080/dl/{name}/")
+
+    settings.MAGNET_API_BASE_URL = "http://localhost:9000/"
+    git_database.init_index()
+
+    assert len(commits(git_database.repo_path)) == 3
+    config = json.loads(show(git_database.repo_path, "config.json"))
+    assert config["api"] == "http://localhost:9000/"
 
 
 def test_init_index_keeps_an_existing_repository(tmp_path: Path):

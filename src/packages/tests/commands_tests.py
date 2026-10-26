@@ -161,8 +161,11 @@ def test_seed_fixtures(tmp_path: Path, index: GitDatabase):
             line("gamma", "0.3.0", {"alpha": "^1"}, kind="lepton", artifacts=lepton),
             line("zeta-lib", "1.0.0"),
             line("zeta-lib", "1.1.0", {"ddwCommon": legacy}),
+            line("eta", "1.0.0"),
         ],
     )
+    # a resolver-only fixture without a tarball
+    (tmp_path / "dl" / "eta-1.0.0-quark-any-any.tar.gz").unlink()
 
     call_command("seed_cli_fixtures", str(tmp_path))
 
@@ -174,6 +177,7 @@ def test_seed_fixtures(tmp_path: Path, index: GitDatabase):
     assert alpha[1]["dependencies"] == {"zeta-lib": "^1.0.0"}
     assert [z["version"] for z in index_lines(index, "zeta-lib")] == ["1.0.0"]
     assert not Project.objects.filter(normalized_name="gamma").exists()
+    assert not Project.objects.filter(normalized_name="eta").exists()
 
     # idempotent, and the index can be regenerated from the database without a diff
     log = commits(index.repo_path)
@@ -222,7 +226,10 @@ def test_seed_real_cli_fixtures(index: GitDatabase):
     for path in sorted((CLI_FIXTURES / "index").glob("*/*.jsonl")):
         for raw in path.read_text().splitlines():
             expected = json.loads(raw)
-            if (expected["name"], expected["version"]) in skipped:
+            name, version, kind = expected["name"], expected["version"], "quark"
+            tarball = CLI_FIXTURES / "dl" / f"{name}-{version}-{kind}-any-any.tar.gz"
+            # resolver-only fixtures (e.g. epsilon) have no tarball
+            if (name, version) in skipped or not tarball.is_file():
                 continue
             expected["dependencies"] = {
                 normalize_name(name): requirement

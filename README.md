@@ -45,6 +45,19 @@ Without docker, `cd src && DJANGO_SETTINGS_MODULE=magnet.settings_local uv run m
 artifacts itself under `/dl/`, the index is a bare repository at `~/git/magnet/magnet_index.git`
 (`manage.py init_index`, then `manage.py seed_cli_fixtures ../../magnet_cli/tests/fixtures`).
 
+### Environment variables
+
+The base settings read these, with defaults for a local checkout (the docker stack sets them in `docker-compose.yml`):
+
+Variable | Default | Comment
+--- | --- | ---
+`GIT_INDEX_REPO_PATH` | `~/git/magnet/magnet_index.git` | bare git repo of the index
+`MAGNET_ARTIFACTS_ROOT` | `~/git/magnet/magnet_artifacts` | artifacts, stored at their download path
+`MAGNET_DOWNLOAD_BASE_URL` | `http://localhost:8000/` | base URL of the `dl` template in the index `config.json`
+`MAGNET_API_BASE_URL` | `http://localhost:8000/` | `api` in the index `config.json`, where the CLI logs in and publishes
+
+`manage.py init_index` rewrites `config.json` when one of the URLs changed.
+
 ## Development
 
 Magnet uses `pre-commit` to enforce formatting.
