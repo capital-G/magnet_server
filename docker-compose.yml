@@ -2,6 +2,7 @@
 #
 #   http://localhost:8000          Django (frontend, admin, API)
 #   http://localhost:8080/dl/…     artifact downloads (nginx)
+#   http://localhost:8080/index/…  static HTTP mirror of the index (nginx)
 #   git://localhost:9418/magnet_index.git   the index (git daemon)
 #   http://localhost:8081          the index in gitweb
 
@@ -9,7 +10,8 @@ volumes:
   db:
   # the bare index repository, written by `server` only
   index:
-  # the artifacts at their download path, written by `server` only
+  # the artifacts at their download path and the index mirror (`index/`),
+  # written by `server` only
   artifacts:
 
 services:

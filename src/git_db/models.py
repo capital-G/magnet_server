@@ -3,6 +3,7 @@ import json
 from django.conf import settings
 from pydantic import BaseModel
 
+from git_db.mirror import mirror_url
 from packages.models import Asset, Release, artifact_path
 
 """
@@ -30,7 +31,7 @@ class GitIndexConfigModel(BaseModel):
     # URL template of an artifact with the placeholders
     # `{name}`, `{version}`, `{kind}`, `{abi}` and `{platform}`
     dl: str
-    # base URL of the static HTTP mirror of the index, unset until it exists (S16)
+    # base URL of the static HTTP mirror of the index (`git_db/mirror.py`)
     http: str | None = None
     # base URL of this server, used by the CLI to log in and publish
     api: str | None = None
@@ -45,7 +46,11 @@ class GitIndexConfigModel(BaseModel):
             platform="{platform}",
         )
         base_url = settings.MAGNET_DOWNLOAD_BASE_URL.rstrip("/")
-        return cls(dl=f"{base_url}/{template}", api=settings.MAGNET_API_BASE_URL)
+        return cls(
+            dl=f"{base_url}/{template}",
+            http=mirror_url(),
+            api=settings.MAGNET_API_BASE_URL,
+        )
 
     def to_json(self) -> str:
         data = {"index-format": self.index_format, "dl": self.dl}

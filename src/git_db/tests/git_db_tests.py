@@ -1,10 +1,13 @@
 import hashlib
 import json
+import os
+import stat
 import subprocess
 import threading
 from pathlib import Path
 
 import pytest
+from django.http import FileResponse
 from django.urls import reverse
 
 from git_db.db import (
@@ -15,6 +18,7 @@ from git_db.db import (
     get_git_database,
 )
 from git_db.files import DuplicateIndexEntry, IndexEntryMissing, KindMismatch
+from git_db.mirror import mirror_root
 from git_db.models import GitArtifactModel, GitIndexConfigModel, GitReleaseModel
 from packages.models import Project, Release
 from packages.tests.factories import (
@@ -24,6 +28,7 @@ from packages.tests.factories import (
     ReleaseFactory,
     quark_tar_gz,
 )
+from packages.views import serve_index_mirror
 
 SHA = hashlib.sha256(quark_tar_gz()).hexdigest()
 
@@ -68,7 +73,7 @@ def test_golden_index(index: GitDatabase):
     assert show(index.repo_path, "config.json") == (
         '{"index-format": 1, "dl": "http://localhost:8000/dl/{name}/{version}/'
         '{name}-{version}-{kind}-{abi}-{platform}.tar.gz", '
-        '"api": "http://localhost:8000/"}\n'
+        '"http": "http://localhost:8000/index/", "api": "http://localhost:8000/"}\n'
     )
     assert show(index.repo_path, "a/alpha.jsonl") == (
         '{"name": "alpha", "version": "1.0.0", "kind": "quark", "dependencies": {}, '
@@ -253,6 +258,7 @@ def test_init_index_is_idempotent_and_updates_the_config(settings):
     assert len(commits(git_database.repo_path)) == 2
     config = json.loads(show(git_database.repo_path, "config.json"))
     assert config["dl"].startswith("http://localhost:8080/dl/{name}/")
+    assert config["http"] == "http://localhost:8080/index/"
 
     settings.MAGNET_API_BASE_URL = "http://localhost:9000/"
     git_database.init_index()
@@ -326,3 +332,96 @@ def test_admin_reports_index_errors(admin_client, index: GitDatabase):
 
     assert response.status_code == 200
     assert "needs its any-any artifact" in response.content.decode()
+
+
+def mirrored(path: str) -> Path:
+    return mirror_root() / path
+
+
+@pytest.mark.django_db
+def test_mirror_equals_the_index(index: GitDatabase):
+    index.commit_release(published_release(project__name="Alpha", version="1.0.0"))
+
+    for path in ["config.json", "a/alpha.jsonl"]:
+        assert mirrored(path).read_text() == show(index.repo_path, path)
+        assert stat.S_IMODE(mirrored(path).stat().st_mode) == 0o644
+    assert not mirrored("README.md").exists()
+    assert sorted(p.name for p in mirror_root().rglob("*")) == [
+        "a",
+        "alpha.jsonl",
+        "config.json",
+    ]
+
+
+@pytest.mark.django_db
+def test_mirror_rewrites_only_changed_files(index: GitDatabase):
+    alpha = published_release(project__name="Alpha", version="1.0.0")
+    index.commit_release(alpha)
+    os.utime(mirrored("a/alpha.jsonl"), (0, 0))
+    os.utime(mirrored("config.json"), (0, 0))
+
+    index.commit_release(published_release(project__name="Beta", version="1.0.0"))
+    assert mirrored("a/alpha.jsonl").stat().st_mtime == 0
+    assert mirrored("b/beta.jsonl").read_text() == show(index.repo_path, "b/beta.jsonl")
+
+    index.yank_release(alpha)
+    assert mirrored("a/alpha.jsonl").read_text() == show(
+        index.repo_path, "a/alpha.jsonl"
+    )
+    assert '"yanked": true' in mirrored("a/alpha.jsonl").read_text()
+    assert mirrored("config.json").stat().st_mtime == 0
+
+
+@pytest.mark.django_db
+def test_mirror_removes_deleted_packages(index: GitDatabase):
+    alpha = published_release(project__name="Alpha", version="1.0.0")
+    index.commit_release(alpha)
+    index.commit_release(published_release(project__name="Beta", version="1.0.0"))
+
+    index.remove_package("alpha")
+
+    assert not mirrored("a/alpha.jsonl").exists()
+    assert not mirrored("a").exists()
+    assert mirrored("b/beta.jsonl").exists()
+
+
+@pytest.mark.django_db
+def test_failed_export_is_repaired_by_the_next_one(
+    index: GitDatabase, monkeypatch, caplog
+):
+    def fail(checkout, target):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("git_db.db.export_index", fail)
+    alpha = published_release(project__name="Alpha", version="1.0.0")
+    # the push happened, so the publish succeeds
+    index.commit_release(alpha)
+    assert "publish alpha 1.0.0" in commits(index.repo_path)
+    assert alpha.published_at
+    assert "Export of the index to the HTTP mirror failed" in caplog.text
+    assert not mirrored("a/alpha.jsonl").exists()
+
+    monkeypatch.undo()
+    # without a change to the index, e.g. `rebuild_index`
+    index.rebuild()
+    assert mirrored("a/alpha.jsonl").read_text() == show(
+        index.repo_path, "a/alpha.jsonl"
+    )
+
+
+@pytest.mark.django_db
+def test_mirror_for_runserver(index: GitDatabase, rf):
+    index.commit_release(published_release(project__name="Alpha", version="1.0.0"))
+
+    response = serve_index_mirror(rf.get("/index/a/alpha.jsonl"), "a/alpha.jsonl")
+    assert response.status_code == 200
+    assert isinstance(response, FileResponse)
+    content = b"".join(response.streaming_content)  # type: ignore[arg-type]
+    assert content == mirrored("a/alpha.jsonl").read_bytes()
+    assert response["Content-Type"] == "application/json"
+    assert response["Cache-Control"] == "no-cache"
+    assert response["Access-Control-Allow-Origin"] == "*"
+
+    response = serve_index_mirror(rf.get("/index/u/unknown.jsonl"), "u/unknown.jsonl")
+    assert response.status_code == 404
+    assert response["Access-Control-Allow-Origin"] == "*"

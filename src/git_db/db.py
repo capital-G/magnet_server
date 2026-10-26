@@ -12,6 +12,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from git_db.files import IndexWriteError, ProjectIndexFile
+from git_db.mirror import export_index, mirror_root
 from git_db.models import GitArtifactModel, GitIndexConfigModel, GitReleaseModel
 from packages.models import Asset, Release
 
@@ -25,7 +26,8 @@ README = """# magnet index
 The package index of [magnet](https://github.com/supercollider/magnet), the SuperCollider package manager.
 It is written by the magnet server only, don't push to it.
 
-- `config.json`: index format and the download URL template of the artifacts
+- `config.json`: index format, the download URL template of the artifacts, the URLs
+  of the static HTTP mirror of this index and of the server
 - `<first char>/<normalized package name>.jsonl`: one line per version of a package
 """
 
@@ -111,13 +113,28 @@ class GitDatabase:
             self._run("add", "--all", cwd=checkout)
             if not self._run("status", "--porcelain", cwd=checkout).strip():
                 logger.info(f"Index unchanged: {message}")
-                return
-            self._run("commit", "--quiet", "-m", message, cwd=checkout)
-            # fast-forward only, which always holds as we hold the lock
-            self._run(
-                "push", "--quiet", "origin", f"HEAD:refs/heads/{BRANCH}", cwd=checkout
-            )
-            logger.info(f"Index updated: {message}")
+            else:
+                self._run("commit", "--quiet", "-m", message, cwd=checkout)
+                # fast-forward only, which always holds as we hold the lock
+                self._run(
+                    "push",
+                    "--quiet",
+                    "origin",
+                    f"HEAD:refs/heads/{BRANCH}",
+                    cwd=checkout,
+                )
+                logger.info(f"Index updated: {message}")
+            # also without changes, which repairs an export that failed before
+            self._export_mirror(checkout)
+
+    def _export_mirror(self, checkout: Path) -> None:
+        """Updates the static HTTP mirror. A failure is only logged: the push
+        already happened, so the change is public and must not be rolled back in
+        the database; the next write (or `rebuild_index`) exports again."""
+        try:
+            export_index(checkout, mirror_root())
+        except OSError:
+            logger.exception("Export of the index to the HTTP mirror failed")
 
     def init_index(self) -> None:
         """Creates the bare repository if missing and writes `config.json` (and a

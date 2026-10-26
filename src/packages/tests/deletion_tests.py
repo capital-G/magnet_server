@@ -190,7 +190,13 @@ def test_debug_downloads_answer_410_for_deleted_artifacts(index, owner):
     assert serve_artifact(request, path).status_code == 200
     gone_marker(ARTIFACT).parent.mkdir(parents=True)
     gone_marker(ARTIFACT).touch()
-    assert serve_artifact(request, path).status_code == 410
+    response = serve_artifact(request, path)
+    assert response.status_code == 410
+    # CORS like nginx, also on 410/404, for the browser client
+    assert response["Access-Control-Allow-Origin"] == "*"
+    response = serve_artifact(request, "unknown/1.0.0/unknown.tar.gz")
+    assert response.status_code == 404
+    assert response["Access-Control-Allow-Origin"] == "*"
 
 
 @pytest.mark.django_db

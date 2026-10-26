@@ -11,6 +11,7 @@ The frontend is written within Django and uses HTMX and AlpineJS.
 
 The package index is a git repository, which only the server writes and the `magnet` CLI fetches.
 The artifacts (`.tar.gz`) are stored on the local filesystem at their download path and served by nginx.
+nginx also serves a static HTTP mirror of the index (`/index/`: `config.json`, `<c>/<name>.jsonl`) for clients without git, e.g. in the browser; the server exports it after every index write.
 
 ## Local stack
 
@@ -20,6 +21,7 @@ The artifacts (`.tar.gz`) are stored on the local filesystem at their download p
 |--------------|--------------------------------------------|---------------------------------------|
 | `server`     | <http://localhost:8000>                    | Django: frontend, admin, API          |
 | `nginx`      | <http://localhost:8080/dl/…>               | artifact downloads                    |
+| `nginx`      | <http://localhost:8080/index/…>            | static HTTP mirror of the index       |
 | `git_daemon` | `git://localhost:9418/magnet_index.git`    | the index                             |
 | `git_web`    | <http://localhost:8081>                    | the index in gitweb                   |
 | `database`   | `localhost:5432`                           | postgres                              |
@@ -49,10 +51,10 @@ Then `magnet package && magnet publish` in a project publishes it (the CLI finds
 Uploads are limited to 50 MB (`MAGNET_MAX_UPLOAD_SIZE`); a proxy in front of Django needs the same limit, e.g. nginx `client_max_body_size 50m`.
 
 The index and the artifacts live in the volumes `index` and `artifacts`; `docker compose down -v` resets everything.
-The index can always be regenerated from the database with `python manage.py rebuild_index`.
+The index (and its HTTP mirror) can always be regenerated from the database with `python manage.py rebuild_index`.
 
 Without docker, `cd src && DJANGO_SETTINGS_MODULE=magnet.settings_local uv run manage.py runserver` serves the
-artifacts itself under `/dl/`, the index is a bare repository at `~/git/magnet/magnet_index.git`
+artifacts itself under `/dl/` and the index mirror under `/index/`, the index is a bare repository at `~/git/magnet/magnet_index.git`
 (`manage.py init_index`, then `manage.py seed_cli_fixtures ../../magnet_cli/tests/fixtures`).
 
 ### Environment variables
@@ -62,8 +64,8 @@ The base settings read these, with defaults for a local checkout (the docker sta
 Variable | Default | Comment
 --- | --- | ---
 `GIT_INDEX_REPO_PATH` | `~/git/magnet/magnet_index.git` | bare git repo of the index
-`MAGNET_ARTIFACTS_ROOT` | `~/git/magnet/magnet_artifacts` | artifacts, stored at their download path
-`MAGNET_DOWNLOAD_BASE_URL` | `http://localhost:8000/` | base URL of the `dl` template in the index `config.json`
+`MAGNET_ARTIFACTS_ROOT` | `~/git/magnet/magnet_artifacts` | artifacts, stored at their download path, and the index mirror (`index/`)
+`MAGNET_DOWNLOAD_BASE_URL` | `http://localhost:8000/` | base URL of the `dl` template and of `http` (`<base>index/`) in the index `config.json`
 `MAGNET_API_BASE_URL` | `http://localhost:8000/` | `api` in the index `config.json`, where the CLI logs in and publishes
 `MAGNET_OAUTH_REDIRECT_URIS` | `http://localhost:8000/users/display-token http://127.0.0.1:8000/users/display-token` | redirect URIs of the CLI's OAuth application (applied by a migration)
 

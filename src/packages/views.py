@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -19,6 +20,7 @@ from rest_framework import status, viewsets
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
+from git_db.mirror import mirror_root
 from packages.deletion import gone_marker
 from packages.models import Asset, Project, Release
 from packages.serializers import (
@@ -117,12 +119,39 @@ class AssetDetail(DetailView):
         return asset
 
 
+def serve_static(
+    request, path: str, document_root: Path, **headers: str
+) -> HttpResponseBase:
+    """A file for runserver (`DEBUG`) with the CORS header nginx adds, also on
+    `404` (so a browser client sees "not found", not a CORS error)."""
+    try:
+        response: HttpResponseBase = serve(
+            request, path, document_root=str(document_root)
+        )
+        for header, value in headers.items():
+            response[header] = value
+    except Http404:
+        response = HttpResponse(status=404)
+    response["Access-Control-Allow-Origin"] = "*"
+    return response
+
+
 def serve_artifact(request, path: str) -> HttpResponseBase:
-    """`/dl/` for runserver (`DEBUG`), like nginx: `410` for deleted artifacts."""
+    """`/dl/` for runserver, like nginx: `410` for deleted artifacts."""
     if gone_marker(f"dl/{path}").is_file():
-        return HttpResponse(status=410)
-    return serve(
-        request, path, document_root=str(settings.MAGNET_ARTIFACTS_ROOT / "dl")
+        response = HttpResponse(status=410)
+        response["Access-Control-Allow-Origin"] = "*"
+        return response
+    return serve_static(request, path, settings.MAGNET_ARTIFACTS_ROOT / "dl")
+
+
+def serve_index_mirror(request, path: str) -> HttpResponseBase:
+    """`/index/`, the static HTTP mirror of the index, for runserver, like nginx."""
+    return serve_static(
+        request,
+        path,
+        mirror_root(),
+        **{"Content-Type": "application/json", "Cache-Control": "no-cache"},
     )
 
 

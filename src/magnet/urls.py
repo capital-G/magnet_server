@@ -28,7 +28,7 @@ from rest_framework_nested import routers
 
 from magnet.views import ApiNotFoundView, VersionApiView
 from packages.api import ArtifactView, FinaliseView, VersionsView, VersionView
-from packages.views import ProjectViewSet, serve_artifact
+from packages.views import ProjectViewSet, serve_artifact, serve_index_mirror
 
 router = routers.DefaultRouter()
 router.register(r"projects", ProjectViewSet, basename="project")
@@ -73,5 +73,9 @@ urlpatterns = [
 ]
 
 if settings.DEBUG:
-    # artifact downloads for runserver; deployments serve them via nginx
-    urlpatterns += [re_path(r"^dl/(?P<path>.*)$", serve_artifact)]
+    # artifact downloads and the index mirror for runserver; deployments serve them
+    # via nginx
+    urlpatterns += [
+        re_path(r"^dl/(?P<path>.*)$", serve_artifact),
+        re_path(r"^index/(?P<path>.*)$", serve_index_mirror),
+    ]
