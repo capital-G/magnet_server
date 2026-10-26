@@ -2,6 +2,7 @@
 server writes into the index. Keep them in sync with the CLI, not the other way round."""
 
 import re
+from urllib.parse import urlparse
 
 from django.core.exceptions import ValidationError
 from django.core.files import File
@@ -28,6 +29,13 @@ VERSION_REQ_RE = re.compile(rf"^\s*(?:{_WILD}|{_COMPARATOR}(?:,{_COMPARATOR})*)\
 
 # abi and platform of an artifact, e.g. `any`, `api3`, `linux_x86_64`
 ARTIFACT_TAG_RE = re.compile(r"^[a-z0-9_]+$")
+
+# a full commit SHA, like the CLI's `is_full_sha` (stored lowercase)
+GIT_REF_RE = re.compile(r"^[0-9a-f]{40}$")
+# an absolute URL, i.e. one with a scheme, which the CLI's `Url::parse` reads
+GIT_URL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:\S+$")
+# schemes for which `Url::parse` requires a host
+SCHEMES_WITH_HOST = {"http", "https", "ws", "wss", "ftp"}
 
 
 def normalize_name(name: str) -> str:
@@ -60,6 +68,26 @@ def validate_version_req(value: str) -> None:
     if not VERSION_REQ_RE.match(value):
         raise ValidationError(
             _("Must be a version requirement like ^1.2.3, ~1.2, >=1.0, <2 or *.")
+        )
+
+
+def validate_git_ref(value: str) -> None:
+    if not GIT_REF_RE.match(value):
+        raise ValidationError(_("Must be a full commit SHA (40 lowercase hex digits)."))
+
+
+def validate_git_url(value: str) -> None:
+    """Only refuses what the CLI couldn't read from an index line (it skips such a
+    line): relative paths, scp-like `git@host:repo`, whitespace. Whether others can
+    fetch it (e.g. `file://`) isn't checked yet."""
+    try:
+        has_host = bool(urlparse(value).hostname)
+    except ValueError:  # e.g. an invalid port
+        has_host = False
+    scheme = value.split(":", 1)[0].lower()
+    if not GIT_URL_RE.match(value) or (scheme in SCHEMES_WITH_HOST and not has_host):
+        raise ValidationError(
+            _("Must be an absolute URL like https://github.com/user/repo.git")
         )
 
 

@@ -151,7 +151,7 @@ def line(name, version, dependencies=None, kind="quark", yanked=False, artifacts
 def test_seed_fixtures(tmp_path: Path, index: GitDatabase):
     legacy = {
         "legacy-quark": True,
-        "git": {"url": "https://example.com/x.git", "ref": "abc"},
+        "git": {"url": "https://example.com/x.git", "ref": "a" * 40},
     }
     lepton = [{"abi": "source", "platform": "any", "sha256": "0" * 64}]
     write_fixtures(
@@ -176,7 +176,9 @@ def test_seed_fixtures(tmp_path: Path, index: GitDatabase):
         ("1.1.0", True),
     ]
     assert alpha[1]["dependencies"] == {"zeta-lib": "^1.0.0"}
-    assert [z["version"] for z in index_lines(index, "zeta-lib")] == ["1.0.0"]
+    zeta = index_lines(index, "zeta-lib")
+    assert [z["version"] for z in zeta] == ["1.0.0", "1.1.0"]
+    assert zeta[1]["dependencies"] == {"ddwcommon": legacy}
     assert not Project.objects.filter(normalized_name="gamma").exists()
     assert not Project.objects.filter(normalized_name="eta").exists()
 
@@ -222,7 +224,7 @@ def test_rebuild_index_restores_package_files(tmp_path: Path, index: GitDatabase
 def test_seed_real_cli_fixtures(index: GitDatabase):
     call_command("seed_cli_fixtures", str(CLI_FIXTURES))
 
-    skipped = {("delta", "0.2.0"), ("gamma", "0.3.0")}  # legacy dependency, lepton
+    skipped = {("gamma", "0.3.0")}  # a lepton
     seeded = 0
     for path in sorted((CLI_FIXTURES / "index").glob("*/*.jsonl")):
         for raw in path.read_text().splitlines():
@@ -243,7 +245,7 @@ def test_seed_real_cli_fixtures(index: GitDatabase):
             ]
             assert actual == [expected]
             seeded += 1
-    assert seeded == 7
+    assert seeded == 8
 
     log = commits(index.repo_path)
     call_command("rebuild_index")

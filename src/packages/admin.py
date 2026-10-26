@@ -15,6 +15,7 @@ from packages.models import (
     Asset,
     DeletedRelease,
     Dependency,
+    GitDependency,
     Project,
     Release,
     ReservedName,
@@ -163,6 +164,18 @@ class DependencyInline(admin.TabularInline):
     ]
 
 
+class GitDependencyInline(admin.TabularInline):
+    model = GitDependency
+    extra = 0
+    fields = [
+        "name",
+        "url",
+        "ref",
+        "legacy_quark",
+        "ignore_quark_deps",
+    ]
+
+
 class AssetInline(admin.TabularInline):
     show_change_link = True
     model = Asset
@@ -234,6 +247,7 @@ class ReleaseAdmin(PermanentDeleteMixin, admin.ModelAdmin):
     inlines = [
         AssetInline,
         DependencyInline,
+        GitDependencyInline,
     ]
 
     list_filter = [

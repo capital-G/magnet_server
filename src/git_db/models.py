@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from django.conf import settings
 from pydantic import BaseModel
@@ -91,25 +92,22 @@ class GitReleaseModel(BaseModel):
     kind: str
     # supported SuperCollider versions (a VersionReq), omitted from the line if unset
     sclang: str | None = None
-    # normalized name of the dependency -> version requirement
-    dependencies: dict[str, str]
+    # normalized name of the dependency -> version requirement, or a git dependency
+    # (`packages.models.git_index_entry`)
+    dependencies: dict[str, str | dict[str, Any]]
     yanked: bool = False
     artifacts: list[GitArtifactModel]
 
     @classmethod
     def from_release(cls, release: Release) -> "GitReleaseModel":
         project = release.project
-        dependencies = {
-            d.dependency.normalized_name: d.constraint
-            for d in release.dependencies_from.select_related("dependency")
-        }
         return cls(
             name=project.normalized_name,
             version=release.version,
             kind=release.artifact_kind,
             sclang=release.sclang or None,
             # sorted, so the line doesn't depend on the order of the database rows
-            dependencies=dict(sorted(dependencies.items())),
+            dependencies=release.index_dependencies(),
             yanked=release.yanked,
             # upload order, which is the order artifacts got appended to the index
             artifacts=[

@@ -2,6 +2,7 @@ import hashlib
 import logging
 import os
 import uuid
+from typing import Any
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -14,6 +15,8 @@ from packages.validators import (
     parse_version,
     validate_artifact_archive,
     validate_artifact_tag,
+    validate_git_ref,
+    validate_git_url,
     validate_name,
     validate_version,
     validate_version_req,
@@ -223,6 +226,63 @@ class Dependency(models.Model):
             )
 
 
+def git_index_entry(
+    url: str, ref: str, legacy_quark: bool, ignore_quark_deps: bool
+) -> dict[str, Any]:
+    """A git dependency in an index line, as the CLI reads it
+    (`GitIndexDependency::Git`); the flags are omitted when false."""
+    entry: dict[str, Any] = {}
+    if legacy_quark:
+        entry["legacy-quark"] = True
+    if ignore_quark_deps:
+        entry["ignore-quark-deps"] = True
+    entry["git"] = {"url": url, "ref": ref}
+    return entry
+
+
+class GitDependency(models.Model):
+    """A git or legacy quark dependency of a release, pinned by a commit (published
+    packages can't use branches or tags, they could move)."""
+
+    release = models.ForeignKey(
+        "Release",
+        on_delete=models.CASCADE,
+        related_name="git_dependencies",
+    )
+
+    # normalized, the key in the index line
+    name = models.CharField(max_length=255, validators=[validate_name])
+
+    url = models.CharField(max_length=2048, validators=[validate_git_url])
+
+    ref = models.CharField(
+        max_length=40, validators=[validate_git_ref], help_text=_("Commit SHA")
+    )
+
+    legacy_quark = models.BooleanField(default=False)
+
+    ignore_quark_deps = models.BooleanField(
+        default=False,
+        help_text=_("Don't use the dependencies of the quark's .quark file"),
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                name="unique_git_dependencies",
+                fields=("release", "name"),
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.release} requires {self.name} ({self.url} {self.ref})"
+
+    def index_entry(self) -> dict[str, Any]:
+        return git_index_entry(
+            self.url, self.ref, self.legacy_quark, self.ignore_quark_deps
+        )
+
+
 class ReleaseQuerySet(models.QuerySet):
     def final(self) -> "ReleaseQuerySet":
         """Releases which are in the index (D2.3), the others are drafts."""
@@ -412,6 +472,17 @@ class Release(models.Model):
         if not self.kind:
             raise ValueError(f"{self} has no kind yet")
         return self.kind
+
+    def index_dependencies(self) -> dict[str, Any]:
+        """The `dependencies` of the version's index line: normalized name ->
+        version requirement, or the git dependency's entry, sorted."""
+        dependencies: dict[str, Any] = {
+            d.dependency.normalized_name: d.constraint
+            for d in self.dependencies_from.select_related("dependency")
+        }
+        for git_dependency in self.git_dependencies.all():
+            dependencies[git_dependency.name] = git_dependency.index_entry()
+        return dict(sorted(dependencies.items()))
 
     def yank_git_entry(self, reason: str = ""):
         from git_db.db import get_git_database

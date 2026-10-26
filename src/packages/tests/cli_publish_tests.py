@@ -18,6 +18,8 @@ MAGNET = (
     Path(__file__).resolve().parents[4] / "magnet_cli" / "target" / "debug" / "magnet"
 )
 
+LEGACY_REF = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
 MANIFEST = """\
 magnet-version = 1
 
@@ -58,7 +60,12 @@ def test_magnet_publish(live_server, tmp_path):
     (project / "Classes").mkdir(parents=True)
     (project / "Classes" / "Foo.sc").write_text("Foo {}\n")
     (project / "README.md").write_text("# Foo\n")
-    (project / "magnet.toml").write_text(MANIFEST)
+    # a legacy quark pinned by its commit, which `magnet package` doesn't fetch
+    (project / "magnet.toml").write_text(
+        MANIFEST + "\n[dependencies]\nddwCommon = { legacy-quark = true, "
+        'ignore-quark-deps = true, git = { url = "https://example.org/ddw.git", '
+        f'ref = "{LEGACY_REF}" }} }}\n'
+    )
     env = {"MAGNET_TOKEN": token, "MAGNET_API_URL": f"{live_server.url}/"}
 
     magnet(project, "package", env=env)
@@ -78,6 +85,13 @@ def test_magnet_publish(live_server, tmp_path):
         }
     ]
     assert json.loads(line)["sclang"] == ">=3.13"
+    assert json.loads(line)["dependencies"] == {
+        "ddwcommon": {
+            "legacy-quark": True,
+            "ignore-quark-deps": True,
+            "git": {"url": "https://example.org/ddw.git", "ref": LEGACY_REF},
+        }
+    }
     assert "already uploaded" not in first
     assert "already uploaded" in second
 

@@ -20,7 +20,7 @@ class Command(BaseCommand):
         "Publishes the fixture packages of the magnet CLI (`tests/fixtures` of "
         "magnet_cli: `index/*/*.jsonl` and their tarballs in `dl/`), so the real CLI "
         "can be tested against this server. Lines the server can't publish yet "
-        "(non-quarks, legacy dependencies) and lines without a tarball are skipped. Already published releases "
+        "(non-quarks) and lines without a tarball are skipped. Already published releases "
         "are skipped too, so it's safe to run repeatedly."
     )
 
@@ -78,9 +78,6 @@ class Command(BaseCommand):
         release = f"{line['name']} {line['version']}"
         if line["kind"] != Project.Kind.quark:
             self.stderr.write(self.style.WARNING(f"Skip {release}: not a quark"))
-            return False
-        if any(not isinstance(r, str) for r in line["dependencies"].values()):
-            self.stderr.write(self.style.WARNING(f"Skip {release}: legacy dependency"))
             return False
         if [(a["abi"], a["platform"]) for a in line["artifacts"]] != [(ANY, ANY)]:
             self.stderr.write(

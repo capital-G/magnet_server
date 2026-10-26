@@ -1,6 +1,6 @@
 {% if release %}
-    {% with deps=release.dependencies_from.all %}
-    {% if deps %}
+    {% with deps=release.dependencies_from.all git_deps=release.git_dependencies.all %}
+    {% if deps or git_deps %}
         <table class="table is-fullwidth is-hoverable">
             <thead>
                 <tr><th>Package</th><th>Constraint</th></tr>
@@ -14,6 +14,15 @@
                         </a>
                     </td>
                     <td class="has-text-grey is-size-7">{{ dep.constraint }}</td>
+                </tr>
+                {% endfor %}
+                {% for dep in git_deps %}
+                <tr>
+                    <td>
+                        {{ dep.name }}
+                        {% if dep.legacy_quark %}<span class="tag is-light is-small ml-1">legacy quark</span>{% endif %}
+                    </td>
+                    <td class="has-text-grey is-size-7">git {{ dep.url }} @ <code title="{{ dep.ref }}">{{ dep.ref|truncatechars:8 }}</code></td>
                 </tr>
                 {% endfor %}
             </tbody>

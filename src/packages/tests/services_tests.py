@@ -6,6 +6,8 @@ from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.core.management import call_command
+from django.urls import reverse
+from pytest_django.asserts import assertContains
 
 from git_db.db import GitDatabase, get_git_database
 from git_db.tests.git_db_tests import show
@@ -20,6 +22,8 @@ from packages.services import (
 )
 from packages.tests.factories import ReleaseFactory, tar_gz
 from users.tests.factories import UserFactory
+
+SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 
 def manifest(
@@ -361,11 +365,51 @@ def test_first_final_version_sets_the_kind(index, user):
         ('bar = { index = "https://other.org" }', "bar comes from another index"),
         (
             'bar = { git = { url = "https://x.org/bar.git", tag = "v1" } }',
-            "bar: git and legacy quark dependencies can't be published yet",
+            "bar is pinned to a git tag, which can move, pin it via `ref = ",
+        ),
+        (
+            'bar = { git = { url = "https://x.org/bar.git", branch = "main" } }',
+            "bar is pinned to a git branch, pin it via `ref = ",
         ),
         (
             'bar = { legacy-quark = true, git = { url = "https://x.org/bar.git", ref = "abc" } }',
-            "bar: git and legacy quark dependencies can't be published yet",
+            "bar is pinned to an abbreviated commit, pin it via `ref = ",
+        ),
+        (
+            'bar = { git = { url = "https://x.org/bar.git" } }',
+            "bar is a git dependency without a ref, pin it via `ref = ",
+        ),
+        (
+            "bar = { legacy-quark = true }",
+            "bar is a legacy quark without a git URL and ref, add `git = ",
+        ),
+        (
+            f'bar = {{ git = {{ url = "https://x.org/bar.git", ref = "{SHA}", tag = "v1" }} }}',
+            "bar can only have one of branch, tag or ref",
+        ),
+        (
+            f'bar = {{ git = {{ url = "git@github.com:x/bar.git", ref = "{SHA}" }} }}',
+            "bar: Must be an absolute URL",
+        ),
+        (
+            f'bar = {{ git = {{ url = "../bar", ref = "{SHA}" }} }}',
+            "bar: Must be an absolute URL",
+        ),
+        (
+            f'bar = {{ git = {{ url = "https:///bar.git", ref = "{SHA}" }} }}',
+            "bar: Must be an absolute URL",
+        ),
+        (
+            f'"3d" = {{ git = {{ url = "https://x.org/3d.git", ref = "{SHA}" }} }}',
+            "3d: Must start with a letter",
+        ),
+        (
+            f'Foo_Bar = {{ git = {{ url = "https://x.org/foo.git", ref = "{SHA}" }} }}',
+            "Foo_Bar can't depend on itself",
+        ),
+        (
+            f'alpha = "^1"\nALPHA = {{ git = {{ url = "https://x.org/a.git", ref = "{SHA}" }} }}',
+            "ALPHA is listed twice",
         ),
         ('beta = "^1"', "beta is not a package with a published version"),
         ('alpha = "~>1"', "alpha: .*version requirement"),
@@ -390,6 +434,96 @@ def test_accepted_dependencies(index, user, alpha):
 
     [line] = index_lines(index, "foo-bar")
     assert line["dependencies"] == {"alpha": ">=1, <2"}
+
+
+@pytest.mark.django_db
+def test_accepted_git_and_legacy_quark_dependencies(index, user, alpha):
+    release, _ = create_draft(user, "foo-bar", "1.0.0")
+    dependencies = f"""
+alpha = "^1"
+ddwCommon = {{ legacy-quark = true, git = {{ url = "https://github.com/jamshark70/ddwCommon.git", ref = "{SHA.upper()}" }} }}
+Some_Quark = {{ legacy-quark = true, ignore-quark-deps = true, git = {{ url = "https://x.org/some.git", ref = "{SHA}" }} }}
+magnetProject = {{ git = {{ url = "ssh://git@x.org/magnet-project.git", ref = "{SHA}" }} }}
+"""
+    upload(user, release, quark(dependencies=dependencies))
+    finalise(user, release)
+
+    [line] = index_lines(index, "foo-bar")
+    # the format of the CLI's fixture `d/delta.jsonl` (0.2.0), keys normalized, the
+    # ref lowercase, `ignore-quark-deps` only when set
+    assert line["dependencies"] == {
+        "alpha": "^1",
+        "ddwcommon": {
+            "legacy-quark": True,
+            "git": {
+                "url": "https://github.com/jamshark70/ddwCommon.git",
+                "ref": SHA,
+            },
+        },
+        "magnetproject": {
+            "git": {"url": "ssh://git@x.org/magnet-project.git", "ref": SHA}
+        },
+        "some-quark": {
+            "legacy-quark": True,
+            "ignore-quark-deps": True,
+            "git": {"url": "https://x.org/some.git", "ref": SHA},
+        },
+    }
+    # key order as the fixture
+    raw = show(index.repo_path, "f/foo-bar.jsonl")
+    assert '"ddwcommon": {"legacy-quark": true, "git": {"url": ' in raw
+    assert release.git_dependencies.count() == 3
+
+    # the line can be regenerated from the database
+    index.rebuild()
+    assert show(index.repo_path, "f/foo-bar.jsonl") == raw
+
+
+@pytest.mark.django_db
+def test_project_page_shows_git_dependencies(client, index, user):
+    release, _ = create_draft(user, "foo-bar", "1.0.0")
+    upload(
+        user,
+        release,
+        quark(
+            dependencies=f'ddwCommon = {{ legacy-quark = true, git = {{ url = "https://x.org/ddw.git", ref = "{SHA}" }} }}'
+        ),
+    )
+    finalise(user, release)
+
+    response = client.get(reverse("project-detail", args=[release.project.slug]))
+    assertContains(response, "ddwcommon")
+    assertContains(response, "legacy quark")
+    assertContains(response, f'git https://x.org/ddw.git @ <code title="{SHA}">')
+
+
+@pytest.mark.django_db
+def test_artifacts_of_a_version_agree_on_git_dependencies(user):
+    release, _ = create_draft(user, "foo-bar", "1.0.0")
+    git = f'bar = {{ git = {{ url = "https://x.org/bar.git", ref = "{SHA}" }} }}'
+    upload(user, release, lepton_source(dependencies=git), abi="source")
+
+    for other in [
+        git.replace(SHA, "b" * 40),
+        git.replace("{ git", "{ legacy-quark = true, git"),
+        git.replace("{ git", "{ ignore-quark-deps = true, git"),
+    ]:
+        with pytest.raises(ValidationError, match="earlier artifacts in: dependencies"):
+            upload(
+                user,
+                release,
+                lepton_binary(dependencies=other),
+                abi="api3_0",
+                platform="macos_arm64",
+            )
+    # the same, spelled differently
+    upload(
+        user,
+        release,
+        lepton_binary(dependencies=git.replace(SHA, SHA.upper())),
+        abi="api3_0",
+        platform="macos_arm64",
+    )
 
 
 @pytest.mark.django_db

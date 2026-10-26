@@ -80,7 +80,9 @@ class ProjectDetail(DetailView):
         if not self.can_publish:
             releases = releases.final()
         self.releases = list(
-            releases.prefetch_related("assets", "dependencies_from__dependency")
+            releases.prefetch_related(
+                "assets", "dependencies_from__dependency", "git_dependencies"
+            )
         )
         if not any(release.is_final for release in self.releases) and not (
             self.can_publish

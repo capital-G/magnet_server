@@ -5,6 +5,7 @@ Used by the publish API and, via `publish_release()`, the management commands.""
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,13 +22,16 @@ from packages.models import (
     Asset,
     DeletedRelease,
     Dependency,
+    GitDependency,
     Project,
     Release,
     ReservedName,
+    git_index_entry,
 )
 from packages.validators import (
     normalize_name,
     validate_artifact_tag,
+    validate_git_url,
     validate_name,
     validate_version,
     validate_version_req,
@@ -48,8 +52,9 @@ class IndexFields:
 
     kind: str
     sclang: str | None
-    # normalized name -> version requirement, sorted
-    dependencies: dict[str, str]
+    # normalized name -> version requirement or git dependency, as in the index
+    # line (`Release.index_dependencies`), sorted
+    dependencies: dict[str, Any]
 
 
 def label(release: Release) -> str:
@@ -188,36 +193,82 @@ def _existing_asset(
     return asset
 
 
-def manifest_dependencies(manifest: dict[str, Any], own_name: str) -> dict[str, str]:
-    """The publishable dependencies of a manifest as normalized name ->
-    requirement, sorted. Refuses everything others couldn't reproduce (like the
-    CLI's `check_publishable`), git and legacy quark dependencies (until the
-    client's M4), and magnet packages without a final version."""
-    problems = []
-    dependencies: dict[str, str] = {}
-    for name, value in manifest.get("dependencies", {}).items():
-        if isinstance(value, str):
-            requirement = value
-        elif "git" in value or "legacy-quark" in value:
-            problems.append(
-                _("%(name)s: git and legacy quark dependencies can't be published yet")
-                % {"name": name}
+def git_dependency(name: str, value: dict[str, Any]) -> dict[str, Any]:
+    """The index entry of a git or legacy quark dependency of a manifest, which
+    must be pinned by a full commit like the CLI's `check_publishable` demands
+    (a branch or tag could move). The server never runs git for it."""
+    hint = _('pin it via `ref = "<commit SHA>"`')
+    git = value.get("git")
+    if git is None:
+        raise ValidationError(
+            _(
+                "%(name)s is a legacy quark without a git URL and ref, add "
+                '`git = { url = "…", ref = "<commit SHA>" }`'
             )
-            continue
+            % {"name": name}
+        )
+    if len([key for key in ("branch", "tag", "ref") if key in git]) > 1:
+        raise ValidationError(
+            _("%(name)s can only have one of branch, tag or ref") % {"name": name}
+        )
+    ref = git.get("ref")
+    if ref is None:
+        if "tag" in git:
+            problem = _("%(name)s is pinned to a git tag, which can move, %(hint)s")
+        elif "branch" in git:
+            problem = _("%(name)s is pinned to a git branch, %(hint)s")
+        else:
+            problem = _("%(name)s is a git dependency without a ref, %(hint)s")
+        raise ValidationError(problem % {"name": name, "hint": hint})
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", ref):
+        raise ValidationError(
+            _("%(name)s is pinned to an abbreviated commit, %(hint)s")
+            % {"name": name, "hint": hint}
+        )
+    try:
+        validate_git_url(git["url"])
+    except ValidationError as e:
+        raise ValidationError([f"{name}: {message}" for message in e.messages]) from e
+    return git_index_entry(
+        url=git["url"],
+        ref=ref.lower(),
+        legacy_quark=value.get("legacy-quark", False),
+        ignore_quark_deps=value.get("ignore-quark-deps", False),
+    )
+
+
+def manifest_dependencies(manifest: dict[str, Any], own_name: str) -> dict[str, Any]:
+    """The publishable dependencies of a manifest as they go into the index line:
+    normalized name -> version requirement or git dependency (`git_dependency`),
+    sorted. Refuses everything others couldn't reproduce (like the CLI's
+    `check_publishable`) and magnet packages without a final version."""
+    problems = []
+    dependencies: dict[str, Any] = {}
+    for name, value in manifest.get("dependencies", {}).items():
+        entry: Any
+        if isinstance(value, str):
+            entry = value
         elif "path" in value:
             problems.append(_("%(name)s is a local path dependency") % {"name": name})
             continue
         elif "index" in value:
             problems.append(_("%(name)s comes from another index") % {"name": name})
             continue
+        elif "git" in value or value.get("legacy-quark"):
+            try:
+                entry = git_dependency(name, value)
+            except ValidationError as e:
+                problems += e.messages
+                continue
         else:
             # like the CLI, a table without a version accepts any version
-            requirement = value.get("version", "*")
+            entry = value.get("version", "*")
 
         normalized_name = normalize_name(name)
         try:
             validate_name(name)
-            validate_version_req(requirement)
+            if isinstance(entry, str):
+                validate_version_req(entry)
         except ValidationError as e:
             problems += [f"{name}: {message}" for message in e.messages]
             continue
@@ -226,7 +277,8 @@ def manifest_dependencies(manifest: dict[str, Any], own_name: str) -> dict[str, 
         elif normalized_name in dependencies:
             problems.append(_("%(name)s is listed twice") % {"name": name})
         elif (
-            not Project.objects.public()
+            isinstance(entry, str)
+            and not Project.objects.public()
             .filter(normalized_name=normalized_name)
             .exists()
         ):
@@ -234,7 +286,7 @@ def manifest_dependencies(manifest: dict[str, Any], own_name: str) -> dict[str, 
                 _("%(name)s is not a package with a published version") % {"name": name}
             )
         else:
-            dependencies[normalized_name] = requirement
+            dependencies[normalized_name] = entry
     if problems:
         raise ValidationError(problems)
     return dict(sorted(dependencies.items()))
@@ -274,15 +326,34 @@ def ensure_tags(kind: str, abi: str, platform: str) -> None:
 
 
 def stored_index_fields(release: Release) -> IndexFields:
-    dependencies = {
-        d.dependency.normalized_name: d.constraint
-        for d in release.dependencies_from.select_related("dependency")
-    }
     return IndexFields(
         kind=release.kind,
         sclang=release.sclang or None,
-        dependencies=dict(sorted(dependencies.items())),
+        dependencies=release.index_dependencies(),
     )
+
+
+def _store_dependencies(release: Release, dependencies: dict[str, Any]) -> None:
+    """Stores dependencies in the form of `manifest_dependencies`."""
+    for name, entry in dependencies.items():
+        dependency: Dependency | GitDependency
+        if isinstance(entry, str):
+            dependency = Dependency(
+                release=release,
+                dependency=Project.objects.get(normalized_name=name),
+                constraint=entry,
+            )
+        else:
+            dependency = GitDependency(
+                release=release,
+                name=name,
+                url=entry["git"]["url"],
+                ref=entry["git"]["ref"],
+                legacy_quark=entry.get("legacy-quark", False),
+                ignore_quark_deps=entry.get("ignore-quark-deps", False),
+            )
+        dependency.full_clean()
+        dependency.save()
 
 
 def _store_manifest(
@@ -299,12 +370,7 @@ def _store_manifest(
     release.readme = inspected.readme or ""
     release.full_clean()
     release.save()
-    for name, requirement in fields.dependencies.items():
-        Dependency.objects.create(
-            release=release,
-            dependency=Project.objects.get(normalized_name=name),
-            constraint=requirement,
-        )
+    _store_dependencies(release, fields.dependencies)
 
     # the CLI sends the normalized name, the manifest has the spelling
     project = release.project
@@ -523,7 +589,7 @@ def publish_release(
     kind: str,
     file: File,
     owner: User,
-    dependencies: dict[str, str] | None = None,
+    dependencies: dict[str, Any] | None = None,
     abi: str = ANY,
     platform: str = ANY,
     uploaded_via: str = "",
@@ -533,9 +599,10 @@ def publish_release(
     are passed in and the artifact only gets the M1 checks, since the M1 fixture
     tarballs have no `magnet.toml`.
 
-    Dependencies map a package name (any spelling) to a version requirement and
-    must refer to existing projects. If a step fails, the database changes are
-    rolled back and the stored artifact is removed again."""
+    Dependencies map a package name (any spelling) to a version requirement, which
+    must refer to an existing project, or to a git dependency in the form of the
+    index line (also the one of the manifest). If a step fails, the database
+    changes are rolled back and the stored artifact is removed again."""
     project = get_or_create_project(name=name, kind=kind, owner=owner)
     release, created = create_draft(owner, name, version)
     if not created:
@@ -546,6 +613,16 @@ def publish_release(
     release.save(update_fields=["kind"])
 
     for dependency_name, requirement in (dependencies or {}).items():
+        if not isinstance(requirement, str):
+            _store_dependencies(
+                release,
+                {
+                    normalize_name(dependency_name): git_dependency(
+                        dependency_name, requirement
+                    )
+                },
+            )
+            continue
         dependency_project = Project.objects.filter(
             normalized_name=normalize_name(dependency_name)
         ).first()
