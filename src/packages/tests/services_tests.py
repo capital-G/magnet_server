@@ -400,8 +400,8 @@ def test_first_final_version_sets_the_kind(index, user):
             "bar: Must be an absolute URL",
         ),
         (
-            f'"3d" = {{ git = {{ url = "https://x.org/3d.git", ref = "{SHA}" }} }}',
-            "3d: Must start with a letter",
+            f'"x.y" = {{ git = {{ url = "https://x.org/x.y.git", ref = "{SHA}" }} }}',
+            "x.y: Must start with a letter or digit",
         ),
         (
             f'Foo_Bar = {{ git = {{ url = "https://x.org/foo.git", ref = "{SHA}" }} }}',
@@ -415,7 +415,7 @@ def test_first_final_version_sets_the_kind(index, user):
         ('alpha = "~>1"', "alpha: .*version requirement"),
         ('Foo-Bar = "*"', "Foo-Bar can't depend on itself"),
         ('alpha = "^1"\nALPHA = "^1"', "ALPHA is listed twice"),
-        ('"3d" = "*"', "3d: Must start with a letter"),
+        ('"x.y" = "*"', "x.y: Must start with a letter or digit"),
     ],
 )
 def test_refused_dependencies(user, alpha, dependencies, error):
@@ -557,7 +557,7 @@ def test_only_owners_and_maintainers_publish(index, user):
 @pytest.mark.parametrize(
     "name, version, error",
     [
-        ("3dj", "1.0.0", "start with a letter"),
+        ("_foo", "1.0.0", "start with a letter or digit"),
         ("foo-bar", "1.0", "MAJOR.MINOR.PATCH"),
         ("foo-bar", "1.0.0-beta", "MAJOR.MINOR.PATCH"),
         ("wslib", "1.0.0", "reserved"),
@@ -574,6 +574,24 @@ def test_claimed_name(user):
     ReservedName.objects.filter(normalized_name="wslib").update(claimed_by=user)
     release, created = create_draft(user, "wslib", "1.0.0")
     assert created and release.project.owner == user
+
+
+@pytest.mark.django_db
+def test_name_with_a_leading_digit(index, user):
+    """The legacy quark 3Dj, once an admin assigned its reserved name."""
+    ReservedName.objects.filter(normalized_name="3dj").update(claimed_by=user)
+    release, _ = create_draft(user, "3dj", "1.0.0")
+    upload(user, release, quark(name="3Dj"))
+    finalise(user, release)
+    assert Project.objects.get(normalized_name="3dj").name == "3Dj"
+    assert index_lines(index, "3dj")[0]["name"] == "3dj"
+    assert show(index.repo_path, "3/3dj.jsonl")
+
+    # and others can depend on it
+    other, _ = create_draft(user, "foo-bar", "1.0.0")
+    upload(user, other, quark(dependencies='"3Dj" = "^1"'))
+    finalise(user, other)
+    assert index_lines(index, "foo-bar")[0]["dependencies"] == {"3dj": "^1"}
 
 
 @pytest.mark.django_db

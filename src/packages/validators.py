@@ -9,7 +9,7 @@ from django.core.files import File
 from django.utils.translation import gettext_lazy as _
 
 # same as `MagnetManifestV1::is_valid_name` of the CLI
-NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 _NUM = r"(?:0|[1-9][0-9]*)"
 
@@ -47,7 +47,10 @@ def normalize_name(name: str) -> str:
 def validate_name(value: str) -> None:
     if not NAME_RE.match(value):
         raise ValidationError(
-            _("Must start with a letter and only contain letters, digits, '_' and '-'.")
+            _(
+                "Must start with a letter or digit and only contain letters, "
+                "digits, '_' and '-'."
+            )
         )
 
 

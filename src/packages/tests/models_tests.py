@@ -28,13 +28,16 @@ def test_normalize_name(name, normalized):
     assert normalize_name(name) == normalized
 
 
-@pytest.mark.parametrize("name", ["a", "alpha", "DDW_Common", "ddw-common", "a1_-"])
+@pytest.mark.parametrize(
+    "name",
+    ["a", "alpha", "DDW_Common", "ddw-common", "a1_-", "3dj", "3Dj", "42hello", "1"],
+)
 def test_valid_name(name):
     validate_name(name)
 
 
 @pytest.mark.parametrize(
-    "name", ["", "1alpha", "-alpha", "_alpha", "al pha", "alpha.beta", "älpha"]
+    "name", ["", "-alpha", "_alpha", "_x", "-x", "x.y", "al pha", "alpha.beta", "älpha"]
 )
 def test_invalid_name(name):
     with pytest.raises(ValidationError):

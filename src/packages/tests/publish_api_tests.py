@@ -140,7 +140,9 @@ def test_existing_draft(api):
     "name, version, detail",
     [
         ("wslib", "1.0.0", "The name wslib is reserved (Legacy quark)."),
-        ("3dj", "1.0.0", "Must start with a letter"),
+        ("_foo", "1.0.0", "Must start with a letter or digit"),
+        # a valid name since S19, but reserved
+        ("3dj", "1.0.0", "The name 3dj is reserved (Legacy quark)."),
         ("foo-bar", "1.0", "MAJOR.MINOR.PATCH"),
         ("foo-bar", "1.0.0", "foo-bar 1.0.0 was deleted"),
     ],
