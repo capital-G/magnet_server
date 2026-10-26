@@ -41,7 +41,7 @@ kind = "lepton"
 
 [artifact]
 global-paths = ["Classes/**.sc"]
-platform-paths = { platform = "macos", paths = ["build/*.scx"] }
+platform-paths = { macos_arm64 = ["build/*.scx"] }
 source-paths = ["Classes/**", "src/**", "CMakeLists.txt"]
 """
 
@@ -230,7 +230,22 @@ def test_quark_has_no_source_artifact():
 
 def test_quark_has_no_plugins():
     with pytest.raises(ValidationError, match="plugins/Foo.scx"):
-        inspect(quark(("plugins/Foo.scx", b"")), abi="api3", platform="macos")
+        inspect(quark(("plugins/Foo.scx", b"")))
+    with pytest.raises(ValidationError, match="A quark can not have `platform-paths`"):
+        inspect(
+            quark(
+                manifest=QUARK_MANIFEST
+                + '\n[artifact.platform-paths]\nmacos_arm64 = ["build/*.scx"]\n'
+            )
+        )
+
+
+def test_overrides_are_refused():
+    manifest = QUARK_MANIFEST + '\n[overrides]\nbar = { path = "../bar" }\n'
+    with pytest.raises(
+        ValidationError, match=r"can't be published with \[overrides\]: bar"
+    ):
+        inspect(quark(manifest=manifest))
 
 
 def test_lepton_artifacts():
@@ -241,18 +256,41 @@ def test_lepton_artifacts():
         ("CMakeLists.txt", b""), ("Classes/Foo.sc", b""), manifest, ("src/Foo.cpp", b"")
     )
 
-    assert inspect(binary, abi="api3", platform="macos").manifest["package"][
+    assert inspect(binary, abi="api3", platform="macos_arm64").manifest["package"][
         "kind"
     ] == ("lepton")
     inspect(source, abi="source", platform="any")
     with pytest.raises(ValidationError, match="src/Foo.cpp"):
-        inspect(source, abi="api3", platform="macos")
+        inspect(source, abi="api3", platform="macos_arm64")
     with pytest.raises(ValidationError, match="plugins/Foo.scx"):
         inspect(binary, abi="source", platform="any")
     with pytest.raises(ValidationError, match="plugins/sub/Foo.scx"):
         inspect(
-            tar_gz(manifest, ("plugins/sub/Foo.scx", b"")), abi="api3", platform="macos"
+            tar_gz(manifest, ("plugins/sub/Foo.scx", b"")),
+            abi="api3",
+            platform="macos_arm64",
         )
+
+
+@pytest.mark.parametrize("platform", ["linux_x86_64", "any"])
+def test_lepton_binaries_need_platform_paths_for_their_platform(platform):
+    # `collect.rs: test_binaries_of_the_platform`
+    binary = tar_gz(
+        ("Classes/Foo.sc", b""),
+        ("magnet.toml", LEPTON_MANIFEST.encode()),
+        ("plugins/Foo.so", b""),
+    )
+    with pytest.raises(
+        ValidationError, match=f"There are no `platform-paths` for {platform}"
+    ):
+        inspect(binary, abi="api3", platform=platform)
+
+
+def test_unknown_platform_in_manifest():
+    # `collect.rs: test_unknown_platform_in_manifest`
+    manifest = LEPTON_MANIFEST.replace("macos_arm64 =", "macos =")
+    with pytest.raises(ValidationError, match="platform-paths"):
+        inspect(tar_gz(("magnet.toml", manifest.encode())), abi="source")
 
 
 @pytest.mark.parametrize(
@@ -315,3 +353,52 @@ def test_artifact_of_the_real_cli(tmp_path):
         "magnet.toml",
     ]
     assert artifact.manifest["package"]["sclang"] == ">=3.13"
+
+
+@pytest.mark.skipif(
+    not (MAGNET_CLI / "target" / "debug" / "magnet").is_file(),
+    reason="needs a debug build of ../magnet_cli",
+)
+def test_lepton_artifacts_of_the_real_cli(tmp_path):
+    for path, content in {
+        "Classes/Foo.sc": "Foo {}\n",
+        "src/Foo.cpp": "// Foo\n",
+        "CMakeLists.txt": "# Foo\n",
+        "build/Foo.scx": "binary\n",
+        "build/CMakeCache.txt": "not packaged\n",
+        "magnet.toml": LEPTON_MANIFEST,
+    }.items():
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text(content)
+    subprocess.run(
+        [MAGNET_CLI / "target" / "debug" / "magnet", "package"],
+        cwd=tmp_path,
+        env={
+            "HOME": str(tmp_path),
+            "PATH": "/usr/bin:/bin",
+            "MAGNET_ABI": "api3",
+            "MAGNET_PLATFORM": "macos_arm64",
+        },
+        check=True,
+        capture_output=True,
+    )
+
+    dist = tmp_path / "dist"
+    binary = inspect(
+        (dist / "foo-1.0.0-lepton-api3-macos_arm64.tar.gz").read_bytes(),
+        abi="api3",
+        platform="macos_arm64",
+    )
+    source = inspect(
+        (dist / "foo-1.0.0-lepton-source-any.tar.gz").read_bytes(),
+        abi="source",
+        platform="any",
+    )
+
+    assert binary.files == ["Classes/Foo.sc", "magnet.toml", "plugins/Foo.scx"]
+    assert source.files == [
+        "CMakeLists.txt",
+        "Classes/Foo.sc",
+        "magnet.toml",
+        "src/Foo.cpp",
+    ]

@@ -234,15 +234,31 @@ def refused_files(
     (`collect.rs: collect_files`), each with the reason. Every file must be
     `magnet.toml`, the readme, or selected by the globs of `[artifact]`:
     `source-paths` for the source artifact (`source`/`any`), else `global-paths`
-    or a binary of `platform-paths` in `plugins/` (leptons and gluons)."""
+    or, for leptons and gluons, a binary in `plugins/`, whose platform needs an entry
+    in `platform-paths` (the binaries themselves aren't matched against its globs)."""
     kind = manifest["package"]["kind"]
     artifact = manifest.get("artifact", {})
     is_source = (abi, platform) == (SOURCE_ABI, "any")
-    if is_source and kind == "quark":
+    binary_platforms = artifact.get("platform-paths", {})
+    if kind == "quark":
+        if is_source:
+            raise ValidationError(
+                _(
+                    "A quark has no source artifact, since its artifact already is the source."
+                )
+            )
+        if binary_platforms:
+            raise ValidationError(
+                _("A quark can not have `platform-paths`, since it has no binaries.")
+            )
+    has_binaries = kind != "quark" and not is_source
+    if has_binaries and platform not in binary_platforms:
         raise ValidationError(
             _(
-                "A quark has no source artifact, since its artifact already is the source."
-            )
+                "There are no `platform-paths` for %(platform)s in [artifact], "
+                "which select the binaries of the package."
+            ),
+            params={"platform": platform},
         )
     globs_name = "source-paths" if is_source else "global-paths"
     try:
@@ -250,7 +266,6 @@ def refused_files(
         exclude = GlobSet(artifact.get("exclude", []))
     except GlobError as e:
         raise ValidationError(str(e)) from e
-    has_binaries = kind != "quark" and not is_source and "platform-paths" in artifact
     always_packaged = {MANIFEST_FILE, readme_path(manifest)}
 
     refused = []
@@ -281,6 +296,12 @@ def inspect_artifact(file: File, abi: str, platform: str) -> InspectedArtifact:
             params={"file": MANIFEST_FILE},
         )
     manifest = parse_manifest(entries.manifest)
+    if overrides := manifest.get("overrides"):
+        # like the CLI's `check_publishable`: others couldn't reproduce them
+        raise ValidationError(
+            _("%(file)s can't be published with [overrides]: %(names)s"),
+            params={"file": MANIFEST_FILE, "names": ", ".join(sorted(overrides))},
+        )
 
     if refused := refused_files(entries.files, manifest, abi, platform):
         listed = ", ".join(refused[:MAX_LISTED_FILES])
