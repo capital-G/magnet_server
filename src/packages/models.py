@@ -411,13 +411,22 @@ class Release(models.Model):
             raise ValueError(f"{self} has no kind yet")
         return self.kind
 
-    def yank_git_entry(self):
+    def yank_git_entry(self, reason: str = ""):
         from git_db.db import get_git_database
 
         # the index first, so the database only says yanked once the index does
         get_git_database().yank_release(self)
         self.yanked = True
-        self.save(update_fields=["yanked"])
+        self.yanked_reason = reason
+        self.save(update_fields=["yanked", "yanked_reason"])
+
+    def unyank_git_entry(self):
+        from git_db.db import get_git_database
+
+        get_git_database().unyank_release(self)
+        self.yanked = False
+        self.yanked_reason = ""
+        self.save(update_fields=["yanked", "yanked_reason"])
 
 
 class Asset(models.Model):

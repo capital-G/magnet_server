@@ -1,5 +1,7 @@
+from collections.abc import Callable
+
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Prefetch, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect
@@ -19,7 +21,7 @@ from packages.serializers import (
     ProjectDetailSerializer,
     ProjectSerializer,
 )
-from packages.services import Conflict, delete_draft
+from packages.services import Conflict, delete_draft, unyank, yank
 
 
 class HomeView(TemplateView):
@@ -111,20 +113,63 @@ class AssetDetail(DetailView):
         return asset
 
 
-@require_POST
-@login_required
-def delete_draft_view(request, slug: str, version: str) -> HttpResponse:
+def release_action(
+    request, slug: str, version: str, action: Callable[[Release], object], url: str
+) -> HttpResponse:
+    """Runs a change of the owners/maintainers on a release, then redirects to
+    `url` (htmx follows it with a full page load)."""
     release = get_object_or_404(Release, project__slug=slug, version=version)
     try:
-        delete_draft(request.user, release)
+        action(release)
     except PermissionDenied:
-        return HttpResponse("You can't delete this draft.", status=403)
+        return HttpResponse("You are not an owner or maintainer.", status=403)
+    except ValidationError as e:
+        return HttpResponse("; ".join(e.messages), status=400)
     except Conflict as e:
         return HttpResponse(str(e), status=409)
-    url = reverse("project-detail", args=[slug])
     if request.htmx:
         return HttpResponseClientRedirect(url)
     return redirect(url)
+
+
+@require_POST
+@login_required
+def delete_draft_view(request, slug: str, version: str) -> HttpResponse:
+    return release_action(
+        request,
+        slug,
+        version,
+        lambda release: delete_draft(request.user, release),
+        reverse("project-detail", args=[slug]),
+    )
+
+
+@require_POST
+@login_required
+def yank_view(request, slug: str, version: str) -> HttpResponse:
+    # the answer of `hx-prompt`, or a form field without htmx
+    reason = (request.htmx.prompt if request.htmx else None) or request.POST.get(
+        "reason", ""
+    )
+    return release_action(
+        request,
+        slug,
+        version,
+        lambda release: yank(request.user, release, reason.strip()),
+        f"{reverse('project-detail', args=[slug])}?version={version}",
+    )
+
+
+@require_POST
+@login_required
+def unyank_view(request, slug: str, version: str) -> HttpResponse:
+    return release_action(
+        request,
+        slug,
+        version,
+        lambda release: unyank(request.user, release),
+        f"{reverse('project-detail', args=[slug])}?version={version}",
+    )
 
 
 class ProjectViewSet(viewsets.ViewSet):

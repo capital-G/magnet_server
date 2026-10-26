@@ -10,6 +10,16 @@ urlpatterns = [
         views.delete_draft_view,
         name="delete-draft",
     ),
+    path(
+        "project/<slug:slug>/versions/<str:version>/yank",
+        views.yank_view,
+        name="yank",
+    ),
+    path(
+        "project/<slug:slug>/versions/<str:version>/unyank",
+        views.unyank_view,
+        name="unyank",
+    ),
     path("assets/<uuid:uuid>", views.AssetDetail.as_view(), name="asset-detail"),
     path("", views.HomeView.as_view(), name="home"),
 ]

@@ -14,6 +14,21 @@
                 {% if release.yanked %}
                     <span class="tag is-danger is-light is-small ml-1">yanked</span>
                 {% endif %}
+                {% if can_publish and release.is_final %}
+                    {% if release.yanked %}
+                        <button class="button is-small is-light ml-1"
+                                hx-post="{% url 'unyank' project.slug release.version %}"
+                                hx-confirm="Un-yank {{ release.version }}, so new projects can use it again?">
+                            Un-yank
+                        </button>
+                    {% else %}
+                        <button class="button is-small is-danger is-light ml-1"
+                                hx-post="{% url 'yank' project.slug release.version %}"
+                                hx-prompt="Yank {{ release.version }}? New projects won't use it, existing lock files keep it. Reason (optional):">
+                            Yank
+                        </button>
+                    {% endif %}
+                {% endif %}
                 {% if not release.is_final %}
                     <span class="tag is-warning is-light is-small ml-1">draft</span>
                     {% if can_publish %}

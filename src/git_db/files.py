@@ -30,7 +30,7 @@ class ProjectIndexFile:
 
     Lines are never removed. They are immutable except for
     - artifacts, which can be appended
-    - yanked, which can change to true
+    - yanked, which flips with a yank and its undo
     """
 
     def __init__(self, path: Path):
@@ -81,8 +81,14 @@ class ProjectIndexFile:
         self.write(releases)
 
     def yank_release(self, version: str) -> None:
+        self._set_yanked(version, True)
+
+    def unyank_release(self, version: str) -> None:
+        self._set_yanked(version, False)
+
+    def _set_yanked(self, version: str, yanked: bool) -> None:
         releases = self.releases
-        self._find(releases, version).yanked = True
+        self._find(releases, version).yanked = yanked
         self.write(releases)
 
     def _find(self, releases: list[GitReleaseModel], version: str) -> GitReleaseModel:

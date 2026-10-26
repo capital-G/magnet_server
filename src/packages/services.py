@@ -488,6 +488,33 @@ def delete_draft(user: User, release: Release) -> None:
     logger.info(f"Deleted draft {release}")
 
 
+def _ensure_final(release: Release) -> None:
+    if not release.is_final:
+        raise ValidationError(
+            _("%(release)s is a draft, only final versions can be yanked.")
+            % {"release": label(release)}
+        )
+
+
+def yank(user: User, release: Release, reason: str = "") -> None:
+    """Yanks a final version: the resolver skips it for new lock files, existing
+    ones keep it (and `magnet install` warns). Its artifacts stay downloadable."""
+    ensure_can_publish(user, release.project)
+    _ensure_final(release)
+    if not release.yanked:
+        release.yank_git_entry(reason)
+        logger.info(f"Yanked {release}")
+
+
+def unyank(user: User, release: Release) -> None:
+    """Undoes a yank."""
+    ensure_can_publish(user, release.project)
+    _ensure_final(release)
+    if release.yanked:
+        release.unyank_git_entry()
+        logger.info(f"Unyanked {release}")
+
+
 @transaction.atomic
 def publish_release(
     *,

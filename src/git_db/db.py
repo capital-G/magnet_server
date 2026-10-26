@@ -155,6 +155,10 @@ class GitDatabase:
         with self.transaction(f"yank {name} {version}") as checkout:
             ProjectIndexFile.for_name(checkout, name).yank_release(version)
 
+    def unyank(self, name: str, version: str) -> None:
+        with self.transaction(f"unyank {name} {version}") as checkout:
+            ProjectIndexFile.for_name(checkout, name).unyank_release(version)
+
     def commit_release(self, release: Release) -> None:
         """Writes the release with its artifacts into the index, which publishes it.
         Sets `published_at` once that succeeded."""
@@ -178,6 +182,9 @@ class GitDatabase:
 
     def yank_release(self, release: Release) -> None:
         self.yank(name=release.project.normalized_name, version=release.version)
+
+    def unyank_release(self, release: Release) -> None:
+        self.unyank(name=release.project.normalized_name, version=release.version)
 
     def rebuild(self) -> None:
         """Regenerates all package files from the published releases in the

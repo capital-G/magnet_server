@@ -191,6 +191,7 @@ class ReleaseAdmin(admin.ModelAdmin):
     actions = [
         "add_to_git_index",
         "yank_release_in_git_index",
+        "unyank_release_in_git_index",
     ]
 
     @admin.action(description="Finalise (add release to git index)")
@@ -203,6 +204,12 @@ class ReleaseAdmin(admin.ModelAdmin):
     def yank_release_in_git_index(self, request, queryset: QuerySet[Release]):
         run_index_action(
             self, request, queryset, Release.yank_git_entry, "yanked in the index"
+        )
+
+    @admin.action(description="Un-yank release in git index")
+    def unyank_release_in_git_index(self, request, queryset: QuerySet[Release]):
+        run_index_action(
+            self, request, queryset, Release.unyank_git_entry, "un-yanked in the index"
         )
 
 

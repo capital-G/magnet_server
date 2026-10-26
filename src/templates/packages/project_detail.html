@@ -21,6 +21,9 @@
         {% if release.summary %}
             <p class="has-text-grey mb-3">{{ release.summary }}</p>
         {% endif %}
+        {% if release.yanked_reason %}
+            <p class="has-text-danger mb-3">Yanked: {{ release.yanked_reason }}</p>
+        {% endif %}
         <span class="tag is-link is-light">{{ project.get_kind_display }}</span>
     </div>
 </div>
