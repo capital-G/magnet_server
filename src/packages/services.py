@@ -9,17 +9,33 @@ from django.db import transaction
 from django.utils.translation import gettext as _
 
 from git_db.db import get_git_database
-from packages.models import ANY, Asset, Dependency, Project, Release
+from packages.models import ANY, Asset, Dependency, Project, Release, ReservedName
 from packages.validators import normalize_name
 
 logger = logging.getLogger(__name__)
 
 
+def ensure_name_available(name: str, user: User) -> None:
+    """Refuses to register a new package under a reserved name, unless the
+    reservation was claimed by `user`. Only for new packages: existing projects
+    with a reserved name keep working for their owners and maintainers."""
+    reservation = ReservedName.objects.filter(
+        normalized_name=normalize_name(name)
+    ).first()
+    if reservation is not None and reservation.claimed_by_id != user.pk:
+        raise ValidationError(
+            _("The name %(name)s is reserved (%(reason)s).")
+            % {"name": name, "reason": reservation.get_reason_display()}
+        )
+
+
 def get_or_create_project(*, name: str, kind: str, owner: User) -> Project:
     """The project with the normalized `name`, created if missing.
-    Its kind must match, since the kind of a package is fixed (D2.3)."""
+    Its kind must match, since the kind of a package is fixed (D2.3).
+    A new project's name must not be reserved for someone else."""
     project = Project.objects.filter(normalized_name=normalize_name(name)).first()
     if project is None:
+        ensure_name_available(name, owner)
         project = Project(name=name, kind=kind, owner=owner)
         project.full_clean()
         project.save()

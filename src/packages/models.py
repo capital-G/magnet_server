@@ -509,3 +509,77 @@ class Asset(models.Model):
         from git_db.db import get_git_database
 
         get_git_database().commit_asset(self)
+
+
+class ReservedName(models.Model):
+    """A package name nobody but `claimed_by` may register, e.g. the name of a
+    legacy quark, which belongs to its author, or of a hard-deleted package.
+    Projects which already exist under a reserved name are not affected."""
+
+    class Reason(models.TextChoices):
+        legacy_quark = "legacy_quark", _("Legacy quark")
+        deleted = "deleted", _("Deleted package")
+
+    normalized_name = models.CharField(
+        max_length=255,
+        unique=True,
+        help_text=_("The reserved name, normalized, e.g. ddw-common"),
+    )
+
+    reason = models.CharField(max_length=32, choices=Reason.choices)
+
+    note = models.TextField(
+        blank=True,
+        default="",
+        help_text=_("e.g. the repository URL of the legacy quark"),
+    )
+
+    claimed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reserved_names",
+        help_text=_("The user who may register a package with this name"),
+    )
+
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("normalized_name",)
+        verbose_name = _("Reserved name")
+        verbose_name_plural = _("Reserved names")
+
+    def __str__(self):
+        return self.normalized_name
+
+    def save(self, *args, **kwargs):
+        self.normalized_name = normalize_name(self.normalized_name)
+        super().save(*args, **kwargs)
+
+
+class DeletedRelease(models.Model):
+    """Tombstone of a hard-deleted version, so its version number is never
+    published again: a lock file may still refer to it (DESIGN.md "Deletion")."""
+
+    normalized_name = models.CharField(max_length=255)
+
+    version = models.CharField(max_length=60)
+
+    deleted_at = models.DateTimeField(auto_now_add=True)
+
+    reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ("normalized_name", "-deleted_at")
+        verbose_name = _("Deleted release")
+        verbose_name_plural = _("Deleted releases")
+        constraints = [
+            models.UniqueConstraint(
+                name="unique_deleted_release",
+                fields=("normalized_name", "version"),
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.normalized_name} ({self.version})"

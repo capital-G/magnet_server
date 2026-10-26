@@ -5,7 +5,14 @@ from django.db.models import Model, QuerySet
 
 from git_db.db import GitCommandError
 from git_db.files import IndexWriteError
-from packages.models import Asset, Dependency, Project, Release
+from packages.models import (
+    Asset,
+    DeletedRelease,
+    Dependency,
+    Project,
+    Release,
+    ReservedName,
+)
 
 
 def run_index_action[T: Model](
@@ -201,3 +208,53 @@ class AssetAdmin(admin.ModelAdmin):
         run_index_action(
             self, request, queryset, Asset.make_git_entry, "added to the index"
         )
+
+
+@admin.register(ReservedName)
+class ReservedNameAdmin(admin.ModelAdmin):
+    list_display = [
+        "normalized_name",
+        "reason",
+        "claimed_by",
+        "created",
+    ]
+
+    list_filter = [
+        "reason",
+    ]
+
+    autocomplete_fields = [
+        "claimed_by",
+    ]
+
+    search_fields = [
+        "normalized_name",
+        "note",
+    ]
+
+
+@admin.register(DeletedRelease)
+class DeletedReleaseAdmin(admin.ModelAdmin):
+    """Read-only: tombstones are written by the hard delete, and removing one would
+    allow publishing different contents under a deleted version."""
+
+    list_display = [
+        "normalized_name",
+        "version",
+        "deleted_at",
+        "reason",
+    ]
+
+    search_fields = [
+        "normalized_name",
+        "version",
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
