@@ -1,11 +1,16 @@
 from collections.abc import Callable, Iterable
+from typing import Any
 
+from django import forms
 from django.contrib import admin, messages
+from django.contrib.admin import helpers
 from django.core.exceptions import ValidationError
 from django.db.models import Model, QuerySet
+from django.template.response import TemplateResponse
 
 from git_db.db import GitCommandError
 from git_db.files import IndexWriteError
+from packages.deletion import delete_project_permanently, delete_release_permanently
 from packages.models import (
     Asset,
     DeletedRelease,
@@ -38,10 +43,61 @@ def run_index_action[T: Model](
             model_admin.message_user(request, f"{obj}: {done}", messages.SUCCESS)
 
 
+class PermanentDeleteForm(forms.Form):
+    reason = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 3, "cols": 60}),
+        help_text="Stored with the tombstones, e.g. malware or a leaked secret.",
+    )
+
+
+class PermanentDeleteMixin:
+    """Replaces Django's delete, which would leave the index, the storage and the
+    tombstones behind, with "delete permanently" (`packages/deletion.py`)
+    for superusers, after a confirmation page which asks for the reason."""
+
+    delete_permanently_function: Callable[[Any, str], None]
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
+    def has_hard_delete_permission(self, request) -> bool:
+        return request.user.is_superuser
+
+    @admin.action(
+        description="Delete permanently (index, artifacts; versions never reused)",
+        permissions=["hard_delete"],
+    )
+    def delete_permanently(self, request, queryset):
+        form = PermanentDeleteForm(request.POST if "confirm" in request.POST else None)
+        if form.is_valid():
+            reason = form.cleaned_data["reason"]
+            run_index_action(
+                self,  # type: ignore[arg-type]
+                request,
+                queryset,
+                lambda obj: self.delete_permanently_function(obj, reason),
+                "deleted permanently",
+            )
+            return None
+        return TemplateResponse(
+            request,
+            "admin/packages/delete_permanently.html",
+            {
+                **self.admin_site.each_context(request),  # type: ignore[attr-defined]
+                "title": "Delete permanently",
+                "objects": queryset,
+                "form": form,
+                "opts": queryset.model._meta,
+                "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
+            },
+        )
+
+
 class ReleaseInlineAdmin(admin.TabularInline):
     show_change_link = True
     model = Release
     extra = 0
+    can_delete = False
 
     fields = [
         "version",
@@ -57,7 +113,10 @@ class ReleaseInlineAdmin(admin.TabularInline):
 
 
 @admin.register(Project)
-class ProjectAdmin(admin.ModelAdmin):
+class ProjectAdmin(PermanentDeleteMixin, admin.ModelAdmin):
+    delete_permanently_function = staticmethod(delete_project_permanently)
+    actions = ["delete_permanently"]
+
     list_display = [
         "name",
         "normalized_name",
@@ -108,6 +167,7 @@ class AssetInline(admin.TabularInline):
     show_change_link = True
     model = Asset
     extra = 0
+    can_delete = False
     fields = [
         "abi",
         "platform",
@@ -148,7 +208,9 @@ class ReleaseStateFilter(admin.SimpleListFilter):
 
 
 @admin.register(Release)
-class ReleaseAdmin(admin.ModelAdmin):
+class ReleaseAdmin(PermanentDeleteMixin, admin.ModelAdmin):
+    delete_permanently_function = staticmethod(delete_release_permanently)
+
     list_display = [
         "project",
         "version",
@@ -192,6 +254,7 @@ class ReleaseAdmin(admin.ModelAdmin):
         "add_to_git_index",
         "yank_release_in_git_index",
         "unyank_release_in_git_index",
+        "delete_permanently",
     ]
 
     @admin.action(description="Finalise (add release to git index)")
@@ -215,6 +278,10 @@ class ReleaseAdmin(admin.ModelAdmin):
 
 @admin.register(Asset)
 class AssetAdmin(admin.ModelAdmin):
+    def has_delete_permission(self, request, obj=None) -> bool:
+        # an artifact goes with its version (`ReleaseAdmin.delete_permanently`)
+        return False
+
     list_display = [
         "file",
         "created",

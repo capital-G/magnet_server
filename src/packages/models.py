@@ -185,9 +185,11 @@ class Dependency(models.Model):
         related_name="dependencies_from",
     )
 
+    # PROTECT: the index lines of other packages name it, so a package with
+    # dependents can't be deleted (see `packages/deletion.py`)
     dependency = models.ForeignKey(
         "Project",
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="dependency_to",
     )
 

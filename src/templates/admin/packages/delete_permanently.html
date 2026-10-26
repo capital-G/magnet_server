@@ -1,0 +1,36 @@
+{% extends "admin/base_site.html" %}
+{% load admin_urls %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Home</a>
+    &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+    &rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+    &rsaquo; {{ title }}
+</div>
+{% endblock %}
+
+{% block content %}
+<p>
+    These {{ opts.verbose_name_plural }} are removed from the index, the database and the storage.
+    Their version numbers can never be published again, downloads of their artifacts answer
+    <code>410 Gone</code>{% if opts.model_name == "project" %}, and the package names stay reserved{% endif %}.
+    This can't be undone; a yank is the normal way to retract a version.
+</p>
+<ul>
+    {% for object in objects %}
+        <li>{{ object }}</li>
+    {% endfor %}
+</ul>
+<form method="post">
+    {% csrf_token %}
+    {% for object in objects %}
+        <input type="hidden" name="{{ action_checkbox_name }}" value="{{ object.pk }}">
+    {% endfor %}
+    <input type="hidden" name="action" value="delete_permanently">
+    <input type="hidden" name="confirm" value="yes">
+    {{ form.as_p }}
+    <input type="submit" value="Delete permanently">
+    <a href="{% url opts|admin_urlname:'changelist' %}" class="button cancel-link">Cancel</a>
+</form>
+{% endblock %}

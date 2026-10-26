@@ -16,7 +16,6 @@ Including another URLconf
 """
 
 from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path, re_path
 from drf_spectacular.views import (
@@ -29,7 +28,7 @@ from rest_framework_nested import routers
 
 from magnet.views import ApiNotFoundView, VersionApiView
 from packages.api import ArtifactView, FinaliseView, VersionsView, VersionView
-from packages.views import ProjectViewSet
+from packages.views import ProjectViewSet, serve_artifact
 
 router = routers.DefaultRouter()
 router.register(r"projects", ProjectViewSet, basename="project")
@@ -75,4 +74,4 @@ urlpatterns = [
 
 if settings.DEBUG:
     # artifact downloads for runserver; deployments serve them via nginx
-    urlpatterns += static("dl/", document_root=settings.MAGNET_ARTIFACTS_ROOT / "dl")
+    urlpatterns += [re_path(r"^dl/(?P<path>.*)$", serve_artifact)]

@@ -159,6 +159,14 @@ class GitDatabase:
         with self.transaction(f"unyank {name} {version}") as checkout:
             ProjectIndexFile.for_name(checkout, name).unyank_release(version)
 
+    def remove_release(self, name: str, version: str) -> None:
+        with self.transaction(f"delete {name} {version}") as checkout:
+            ProjectIndexFile.for_name(checkout, name).remove_release(version)
+
+    def remove_package(self, name: str) -> None:
+        with self.transaction(f"delete {name}") as checkout:
+            ProjectIndexFile.for_name(checkout, name).remove()
+
     def commit_release(self, release: Release) -> None:
         """Writes the release with its artifacts into the index, which publishes it.
         Sets `published_at` once that succeeded."""

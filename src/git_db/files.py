@@ -28,9 +28,10 @@ class ProjectIndexFile:
     at `<first char of the normalized name>/<normalized name>.jsonl`,
     e.g. `d/ddw-common.jsonl`.
 
-    Lines are never removed. They are immutable except for
+    Lines are immutable except for
     - artifacts, which can be appended
     - yanked, which flips with a yank and its undo
+    and only removed by an admin's hard delete (DESIGN.md "Deletion").
     """
 
     def __init__(self, path: Path):
@@ -85,6 +86,19 @@ class ProjectIndexFile:
 
     def unyank_release(self, version: str) -> None:
         self._set_yanked(version, False)
+
+    def remove_release(self, version: str) -> None:
+        """Removes the line of a hard-deleted version, and the file with the last one."""
+        releases = self.releases
+        releases.remove(self._find(releases, version))
+        if releases:
+            self.write(releases)
+        else:
+            self.path.unlink()
+
+    def remove(self) -> None:
+        """Removes the file of a hard-deleted package."""
+        self.path.unlink(missing_ok=True)
 
     def _set_yanked(self, version: str, yanked: bool) -> None:
         releases = self.releases

@@ -1,13 +1,16 @@
 from collections.abc import Callable
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Prefetch, Q
 from django.http import Http404, HttpResponse
+from django.http.response import HttpResponseBase
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 from django.views.generic import DetailView, ListView, TemplateView
+from django.views.static import serve
 from django_htmx.http import HttpResponseClientRedirect
 from drf_spectacular.utils import (
     extend_schema,
@@ -16,6 +19,7 @@ from rest_framework import status, viewsets
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
+from packages.deletion import gone_marker
 from packages.models import Asset, Project, Release
 from packages.serializers import (
     ProjectDetailSerializer,
@@ -111,6 +115,15 @@ class AssetDetail(DetailView):
         if not release.is_final and not release.project.can_publish(self.request.user):
             raise Http404
         return asset
+
+
+def serve_artifact(request, path: str) -> HttpResponseBase:
+    """`/dl/` for runserver (`DEBUG`), like nginx: `410` for deleted artifacts."""
+    if gone_marker(f"dl/{path}").is_file():
+        return HttpResponse(status=410)
+    return serve(
+        request, path, document_root=str(settings.MAGNET_ARTIFACTS_ROOT / "dl")
+    )
 
 
 def release_action(
