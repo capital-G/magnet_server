@@ -3,7 +3,6 @@ from typing import Any
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from rest_framework.fields import SerializerMethodField
-from rest_framework.relations import SlugRelatedField
 
 from packages.models import Asset, Project, Release
 
@@ -120,47 +119,4 @@ class ProjectDetailSerializer(ProjectSerializer):
             "slug",
             "kind",
             "releases",
-        ]
-
-
-class ReleaseUploadSerializer(serializers.ModelSerializer):
-    project = SlugRelatedField(slug_field="slug", read_only=True)  # type: ignore
-
-    class Meta:
-        model = Release
-        fields = [
-            "project",
-            "version",
-            "license",
-        ]
-
-    def to_internal_value(self, data: dict[str, Any]) -> Release:
-        project = Project.objects.get(slug__exact=data["project"])
-        release, _ = Release.objects.get_or_create(
-            version=data["version"],
-            project=project,
-            defaults={
-                "license": data["license"],
-            },
-        )
-        return release
-
-
-class AssetUploadSerializer(serializers.ModelSerializer):
-    release: ReleaseUploadSerializer = ReleaseUploadSerializer(
-        read_only=False,
-        many=False,
-    )
-
-    class Meta:
-        model = Asset
-        fields = [
-            # "uuid",
-            "file",
-            "sha256_checksum",
-            "uploaded_via",
-            "comment",
-            "abi",
-            "platform",
-            "release",
         ]

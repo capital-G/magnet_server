@@ -243,6 +243,9 @@ MAGNET_OAUTH_REDIRECT_URIS = os.environ.get(
 MAGNET_ARCHIVE_MAX_UNPACKED_SIZE = 500 * 1024 * 1024
 MAGNET_ARCHIVE_MAX_ENTRIES = 10_000
 MAGNET_ARCHIVE_MAX_TEXT_FILE_SIZE = 1024 * 1024
+# largest artifact upload (the body of the publish API's PUT); a proxy in front of
+# Django needs the same limit (e.g. nginx `client_max_body_size 50m`)
+MAGNET_MAX_UPLOAD_SIZE = 50 * 1024 * 1024
 
 # Markdown
 MARKDOWNIFY = {

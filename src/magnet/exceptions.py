@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import exception_handler
 
 from git_db.files import IndexWriteError
+from packages.services import Conflict
 
 """
 Errors of the API are JSON `{"detail": "<message>"}`, which the CLI prints
@@ -16,6 +17,12 @@ class PayloadTooLarge(exceptions.APIException):
     status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
     default_detail = "Request body too large."
     default_code = "payload_too_large"
+
+
+class ConflictError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "The request conflicts with what is stored."
+    default_code = "conflict"
 
 
 def messages(detail) -> list[str]:
@@ -39,6 +46,8 @@ def api_exception_handler(exc, context) -> Response | None:
         exc = exceptions.ValidationError(str(exc))
     elif isinstance(exc, RequestDataTooBig):
         exc = PayloadTooLarge()
+    elif isinstance(exc, Conflict):
+        exc = ConflictError(str(exc))
 
     response = exception_handler(exc, context)
     if response is not None and isinstance(exc, exceptions.ValidationError):

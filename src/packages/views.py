@@ -8,17 +8,14 @@ from django.views.decorators.http import require_POST
 from django.views.generic import DetailView, ListView, TemplateView
 from django_htmx.http import HttpResponseClientRedirect
 from drf_spectacular.utils import (
-    OpenApiResponse,
     extend_schema,
 )
-from rest_framework import parsers, permissions, status, viewsets
+from rest_framework import status, viewsets
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from packages.models import Asset, Project, Release
 from packages.serializers import (
-    AssetUploadSerializer,
     ProjectDetailSerializer,
     ProjectSerializer,
 )
@@ -160,29 +157,3 @@ class ProjectViewSet(viewsets.ViewSet):
         project = get_object_or_404(self.queryset.all(), slug=slug)
         serializer = ProjectDetailSerializer(project)
         return Response(serializer.data)
-
-
-class UploadReleaseView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-    parser_classes = [
-        # parsers.FormParser,
-        parsers.MultiPartParser,
-    ]
-
-    @extend_schema(
-        request=AssetUploadSerializer,
-        responses={
-            200: OpenApiResponse(
-                description="Successfully uploaded a release",
-            )
-        },
-        summary="Upload an asset",
-        description="Upload a new asset for a given version.",
-    )
-    def put(self, request, *args, **kwargs):
-        serializer = AssetUploadSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            # @todo respond w/ asset uuid?
-            return Response({"message": "Asset received"}, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

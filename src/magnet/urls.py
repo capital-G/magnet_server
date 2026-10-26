@@ -28,18 +28,36 @@ from oauth2_provider import urls as oauth2_urls
 from rest_framework_nested import routers
 
 from magnet.views import ApiNotFoundView, VersionApiView
-from packages.views import ProjectViewSet, UploadReleaseView
+from packages.api import ArtifactView, FinaliseView, VersionsView, VersionView
+from packages.views import ProjectViewSet
 
 router = routers.DefaultRouter()
 router.register(r"projects", ProjectViewSet, basename="project")
-# router.register("upload", UploadReleaseView, basename="upload")
 
 urlpatterns = [
     path("o/", include(oauth2_urls)),
     path("api/v1/", include(router.urls)),
     path("api/version/", VersionApiView.as_view()),
-    path("api/v1/upload/release/", UploadReleaseView.as_view(), name="upload-release"),
-    # path('api/', include(release_router.urls)),
+    path(
+        "api/v1/packages/<str:name>/versions/",
+        VersionsView.as_view(),
+        name="api-versions",
+    ),
+    path(
+        "api/v1/packages/<str:name>/versions/<str:version>/",
+        VersionView.as_view(),
+        name="api-version",
+    ),
+    path(
+        "api/v1/packages/<str:name>/versions/<str:version>/artifacts/<str:abi>/<str:platform>/",
+        ArtifactView.as_view(),
+        name="api-artifact",
+    ),
+    path(
+        "api/v1/packages/<str:name>/versions/<str:version>/finalise/",
+        FinaliseView.as_view(),
+        name="api-finalise",
+    ),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
     path(

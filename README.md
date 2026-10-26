@@ -45,6 +45,9 @@ For scripts and CI, create a token and pass it as `MAGNET_TOKEN`:
 docker compose exec server python manage.py create_token --user you@example.org --days 30
 ```
 
+Then `magnet package && magnet publish` in a project publishes it (the CLI finds the server via `api` in the index's `config.json`, or `MAGNET_API_URL`).
+Uploads are limited to 50 MB (`MAGNET_MAX_UPLOAD_SIZE`); a proxy in front of Django needs the same limit, e.g. nginx `client_max_body_size 50m`.
+
 The index and the artifacts live in the volumes `index` and `artifacts`; `docker compose down -v` resets everything.
 The index can always be regenerated from the database with `python manage.py rebuild_index`.
 

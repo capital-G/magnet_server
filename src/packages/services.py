@@ -52,6 +52,12 @@ class IndexFields:
     dependencies: dict[str, str]
 
 
+def label(release: Release) -> str:
+    """A release in messages for the CLI, which knows packages by their normalized
+    name (`str(release)` has the display name)."""
+    return f"{release.project.normalized_name} {release.version}"
+
+
 def ensure_name_available(name: str, user: User) -> None:
     """Refuses to register a new package under a reserved name, unless the
     reservation was claimed by `user`. Only for new packages: existing projects
@@ -173,7 +179,7 @@ def _existing_asset(
                 "another sha256 (%(sha256)s), artifacts can't be replaced."
             )
             % {
-                "release": release,
+                "release": label(release),
                 "abi": abi,
                 "platform": platform,
                 "sha256": asset.sha256_checksum,
@@ -439,7 +445,7 @@ def finalise_release(release: Release) -> Release:
             return release
         if not release.kind:
             raise ValidationError(
-                _("%(release)s has no artifacts yet.") % {"release": release}
+                _("%(release)s has no artifacts yet.") % {"release": label(release)}
             )
         abi, platform = required_artifact(release.kind)
         if not release.assets.filter(abi=abi, platform=platform).exists():
@@ -448,7 +454,7 @@ def finalise_release(release: Release) -> Release:
                     "%(release)s needs its %(abi)s-%(platform)s artifact "
                     "before it can be finalised."
                 )
-                % {"release": release, "abi": abi, "platform": platform}
+                % {"release": label(release), "abi": abi, "platform": platform}
             )
 
         project = Project.objects.select_for_update().get(pk=release.project_id)
@@ -469,7 +475,7 @@ def delete_draft(user: User, release: Release) -> None:
         if release.is_final:
             raise Conflict(
                 _("%(release)s is final and can't be deleted, yank it instead.")
-                % {"release": release}
+                % {"release": label(release)}
             )
         files = [asset.file for asset in release.assets.all()]
         release.delete()
@@ -506,7 +512,9 @@ def publish_release(
     project = get_or_create_project(name=name, kind=kind, owner=owner)
     release, created = create_draft(owner, name, version)
     if not created:
-        raise ValidationError(_("%(release)s exists already.") % {"release": release})
+        raise ValidationError(
+            _("%(release)s exists already.") % {"release": label(release)}
+        )
     release.kind = kind
     release.save(update_fields=["kind"])
 
