@@ -237,6 +237,13 @@ MAGNET_OAUTH_REDIRECT_URIS = os.environ.get(
     "http://127.0.0.1:8000/users/display-token",
 ).split()
 
+# Limits of the archive inspection, the same as the CLI's `ExtractLimits`
+# (`../magnet_cli/src/packaging/compression.rs`); the inspection stops at the first
+# one exceeded. Text files are `magnet.toml` and the readme.
+MAGNET_ARCHIVE_MAX_UNPACKED_SIZE = 500 * 1024 * 1024
+MAGNET_ARCHIVE_MAX_ENTRIES = 10_000
+MAGNET_ARCHIVE_MAX_TEXT_FILE_SIZE = 1024 * 1024
+
 # Markdown
 MARKDOWNIFY = {
     "default": {

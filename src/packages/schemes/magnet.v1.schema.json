@@ -1,0 +1,225 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MagnetManifestV1",
+  "type": "object",
+  "properties": {
+    "magnet-version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Magnet manifest version"
+    },
+    "package": {
+      "type": "object",
+      "description": "Package identification",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the project"
+        },
+        "version": {
+          "type": "string",
+          "description": "Version of this package",
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["quark", "lepton", "gluon"],
+          "description": "Kind of the package: quark (sclang classes), lepton (server plugin) or gluon (sclang plugin, reserved)"
+        },
+        "sclang": {
+          "type": "string",
+          "description": "Supported SuperCollider versions as a version range, e.g. \">=3.13\""
+        }
+      },
+      "required": ["name", "version", "kind"],
+      "additionalProperties": false
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Metadata for this package",
+      "properties": {
+        "license": {
+          "type": "string",
+          "description": "License used for this project"
+        },
+        "summary": {
+          "type": "string",
+          "description": "Single line describing the project, shown in lists and search results"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the project"
+        },
+        "authors": {
+          "type": "array",
+          "description": "Authors and maintainers of the package",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string",
+                "format": "email"
+              }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+          }
+        },
+        "tags": {
+          "type": "array",
+          "description": "Tags used for indexing",
+          "items": {
+            "type": "string"
+          }
+        },
+        "repository": {
+          "type": "string",
+          "description": "URL of the git repository - mandatory when publishing to the index"
+        },
+        "readme": {
+          "type": "string",
+          "description": "Readme file to be displayed on the server index - defaults to README.md"
+        }
+      },
+      "additionalProperties": false
+    },
+    "dependencies": {
+      "type": "object",
+      "description": "Dependencies of the project, keyed by package name",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Version constraint as shorthand, e.g. \"0.5.*\""
+          },
+          {
+            "type": "object",
+            "description": "Detailed dependency specification",
+            "properties": {
+              "version": {
+                "type": "string",
+                "description": "Version constraint via semantic versioning"
+              },
+              "legacy-quark": {
+                "type": "boolean",
+                "const": true,
+                "description": "Used for the legacy quarks package management system"
+              },
+              "git": {
+                "type": "object",
+                "description": "Git repository - magnet index will not be queried",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "description": "Git repository URL"
+                  },
+                  "branch": {
+                    "type": "string",
+                    "description": "Git branch to check out"
+                  },
+                  "tag": {
+                    "type": "string",
+                    "description": "Git tag to check out"
+                  },
+                  "ref": {
+                    "type": "string",
+                    "description": "Pin a specific git commit ID"
+                  }
+                },
+                "required": ["url"],
+                "additionalProperties": false
+              },
+              "path": {
+                "type": "string",
+                "description": "Local package path - if present, package cannot be published"
+              },
+              "index": {
+                "type": "string",
+                "description": "Use a custom package index"
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "description": "Files which make up the package, used for bundling",
+      "properties": {
+        "global-paths": {
+          "type": "array",
+          "description": "Paths included for every platform - supports glob wildcards",
+          "items": {
+            "type": "string"
+          }
+        },
+        "platform-paths": {
+          "type": "object",
+          "description": "Platform-dependent paths, e.g. binary build outputs",
+          "properties": {
+            "platform": {
+              "type": "string",
+              "enum": ["windows", "linux", "macos"],
+              "description": "Platform to match"
+            },
+            "paths": {
+              "type": "array",
+              "description": "Platform-dependent files to include",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": ["platform", "paths"],
+          "additionalProperties": false
+        },
+        "source-paths": {
+          "type": "array",
+          "description": "Paths of the source package of a lepton or gluon, e.g. C++ sources and CMakeLists.txt - supports glob wildcards",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "description": "Paths which are never packaged, even if selected by another glob - supports glob wildcards",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "entrypoint": {
+      "type": "array",
+      "description": "Entrypoints for script executions",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the entrypoint - used with magnet run"
+          },
+          "command": {
+            "type": "string",
+            "description": "Command or script to execute"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["system", "sclang"],
+            "default": "sclang",
+            "description": "Kind of entrypoint"
+          }
+        },
+        "required": ["name", "command"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["magnet-version", "package"],
+  "additionalProperties": false
+}
