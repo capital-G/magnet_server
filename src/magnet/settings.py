@@ -159,6 +159,9 @@ OAUTH2_PROVIDER = {
     "ACCESS_TOKEN_EXPIRE_SECONDS": 7200,
     "AUTHORIZATION_CODE_EXPIRE_SECONDS": 600,
 }
+# DOT's models are swappable; the migration of `users.CiToken` (a foreign key to
+# the access token) needs the setting to exist
+OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "oauth2_provider.AccessToken"
 
 LOGIN_REDIRECT_URL = "/"
 LOGIN_URL = "/accounts/login/"

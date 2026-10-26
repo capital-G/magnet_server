@@ -27,6 +27,7 @@
             <div class="navbar-end">
                 {% if user.is_authenticated %}
                     <span class="navbar-item has-text-light">{{ user.email }}</span>
+                    <a class="navbar-item" href="{% url 'tokens' %}">Tokens</a>
                     <a class="navbar-item" href="{% url 'account_logout' %}">Sign out</a>
                 {% else %}
                     <a class="navbar-item" href="{% url 'account_login' %}">Sign in</a>

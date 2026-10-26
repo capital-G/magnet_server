@@ -51,3 +51,26 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return str(self.user)
+
+
+class CiToken(models.Model):
+    """The name of an access token created on the website for scripts and CI
+    (`MAGNET_TOKEN`). The token itself is django-oauth-toolkit's `AccessToken`, so
+    the API authenticates it like a `magnet login` token; tokens without this row
+    (`magnet login`, `create_token`) aren't listed on the tokens page."""
+
+    access_token = models.OneToOneField(
+        "oauth2_provider.AccessToken",
+        on_delete=models.CASCADE,
+        related_name="ci_token",
+    )
+
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created"]
+
+    def __str__(self):
+        return self.name

@@ -2,8 +2,11 @@ import secrets
 from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.utils import timezone
 from oauth2_provider.models import AccessToken, Application
+
+from users.models import CiToken
 
 # `OAUTH_APP_PUBLIC_KEY` of the magnet CLI (`../magnet_cli/src/http_client/auth.rs`).
 # A data migration creates the application (`users/migrations/0002_…`).
@@ -28,3 +31,11 @@ def create_access_token(user: User, days: int, scope: str) -> AccessToken:
         expires=timezone.now() + timedelta(days=days),
         scope=scope,
     )
+
+
+@transaction.atomic
+def create_ci_token(user: User, name: str, days: int) -> AccessToken:
+    """A named token with the `publish` scope, created on the website."""
+    token = create_access_token(user, days, PUBLISH_SCOPE)
+    CiToken.objects.create(access_token=token, name=name)
+    return token
