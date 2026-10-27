@@ -9,12 +9,15 @@ from django.apps import apps
 from django.core.management import CommandError, call_command
 from oauth2_provider.models import AccessToken, RefreshToken
 
-from users.oauth import CLI_CLIENT_ID, get_cli_application
+from users.oauth import CLI_CLIENT_ID, CLI_LOOPBACK_REDIRECT_URI, get_cli_application
 from users.tests.factories import UserFactory
 
 REDIRECT_URI = "http://localhost:8000/users/display-token"
 
 migration = importlib.import_module("users.migrations.0002_cli_oauth_application")
+loopback_migration = importlib.import_module(
+    "users.migrations.0004_cli_loopback_redirect"
+)
 
 
 @pytest.mark.django_db
@@ -26,6 +29,7 @@ def test_migration_creates_the_cli_application():
     assert application.redirect_uris.split() == [
         REDIRECT_URI,
         "http://127.0.0.1:8000/users/display-token",
+        CLI_LOOPBACK_REDIRECT_URI,
     ]
     assert application.skip_authorization
 
@@ -46,6 +50,28 @@ def test_migration_updates_an_existing_application(settings):
     application = get_cli_application()
     assert application.client_type == "public"
     assert application.redirect_uris == "https://magnet.example.org/users/display-token"
+
+
+@pytest.mark.django_db
+def test_loopback_migration_keeps_the_other_uris():
+    application = get_cli_application()
+    application.redirect_uris = "https://magnet.example.org/users/display-token"
+    application.save()
+
+    loopback_migration.add_loopback_redirect(apps, None)
+    loopback_migration.add_loopback_redirect(apps, None)
+
+    application = get_cli_application()
+    assert application.redirect_uris.split() == [
+        "https://magnet.example.org/users/display-token",
+        CLI_LOOPBACK_REDIRECT_URI,
+    ]
+
+    loopback_migration.remove_loopback_redirect(apps, None)
+    assert (
+        get_cli_application().redirect_uris
+        == "https://magnet.example.org/users/display-token"
+    )
 
 
 def pkce() -> tuple[str, str]:
@@ -144,3 +170,71 @@ def test_create_token_refuses(args, message):
 
     with pytest.raises(CommandError, match=message):
         call_command("create_token", *args)
+
+
+@pytest.mark.django_db
+def test_magnet_login_via_loopback(client):
+    """`magnet login` receives the code on its own listener at a random port (RFC 8252)."""
+    client.force_login(UserFactory.create())
+    verifier, challenge = pkce()
+    redirect_uri = "http://127.0.0.1:53123/callback"
+
+    response = client.get(
+        "/o/authorize/",
+        {
+            "response_type": "code",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "client_id": CLI_CLIENT_ID,
+            "redirect_uri": redirect_uri,
+            "state": "xyz",
+        },
+    )
+    assert response.status_code == 302
+    location = urlparse(response.url)
+    assert location._replace(query="").geturl() == redirect_uri
+    query = parse_qs(location.query)
+    assert query["state"] == ["xyz"]
+
+    client.logout()
+    response = client.post(
+        "/o/token/",
+        {
+            "client_id": CLI_CLIENT_ID,
+            "code": query["code"][0],
+            "code_verifier": verifier,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["scope"] == "read publish"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "redirect_uri",
+    [
+        "http://127.0.0.1:53123/other",
+        # RFC 8252 recommends the IP, `localhost` can resolve elsewhere
+        "http://localhost:53123/callback",
+        "https://127.0.0.1:53123/callback",
+        "http://evil.example.org:53123/callback",
+    ],
+)
+def test_other_redirects_are_refused(client, redirect_uri):
+    client.force_login(UserFactory.create())
+    _, challenge = pkce()
+
+    response = client.get(
+        "/o/authorize/",
+        {
+            "response_type": "code",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "client_id": CLI_CLIENT_ID,
+            "redirect_uri": redirect_uri,
+        },
+    )
+    # django-oauth-toolkit's error page, never a redirect
+    assert response.status_code == 400

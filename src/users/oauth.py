@@ -12,6 +12,10 @@ from users.models import CiToken
 # A data migration creates the application (`users/migrations/0002_…`).
 CLI_CLIENT_ID = "8bMJG5cTIk5gdINwQWbYHb0NAflBSr6dw57mANDn"
 CLI_APPLICATION_NAME = "magnet CLI"
+# Where `magnet login` receives the code: a listener of the CLI on a random port. The
+# port is left out, since django-oauth-toolkit allows any port for loopback IPs
+# (RFC 8252 7.3). Added by the data migration `users/0004_…`, the same on every server.
+CLI_LOOPBACK_REDIRECT_URI = "http://127.0.0.1/callback"
 
 PUBLISH_SCOPE = "publish"
 

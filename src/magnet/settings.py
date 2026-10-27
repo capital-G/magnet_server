@@ -233,7 +233,9 @@ MAGNET_DOWNLOAD_BASE_URL = os.environ.get(
 MAGNET_API_BASE_URL = os.environ.get("MAGNET_API_BASE_URL", "http://localhost:8000/")
 
 # Redirect URIs of the CLI's OAuth application (space-separated), set by the data
-# migration `users/0002`. The CLI redirects to `<api url>/users/display-token`.
+# migration `users/0002`. `magnet login --no-browser` redirects to
+# `<api url>/users/display-token`; the loopback URI of `magnet login` is added by
+# `users/0004` on every server and needs no setting.
 MAGNET_OAUTH_REDIRECT_URIS = os.environ.get(
     "MAGNET_OAUTH_REDIRECT_URIS",
     "http://localhost:8000/users/display-token "
