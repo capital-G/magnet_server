@@ -644,12 +644,6 @@ class Asset(models.Model):
             platform=self.platform,
         ).removesuffix(".tar.gz")
 
-    @property
-    def legacy_abi(self) -> str:
-        """The abi of the artifact in the publish API as long as it has no artifact
-        kind (S25): the source's abi was `source`."""
-        return SOURCE_KIND if self.kind == SOURCE_KIND else self.abi
-
     def make_git_entry(self):
         from git_db.db import get_git_database
 

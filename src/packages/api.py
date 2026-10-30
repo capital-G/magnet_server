@@ -1,10 +1,11 @@
-"""The publish API, which the CLI's `magnet publish` uses (see "Contract additions"
-in `implementation_plan.md` and `../magnet_cli/src/http_client/publish.rs`):
+"""The publish API, which the CLI's `magnet publish` uses (see "The contract (M3)"
+and "Contract additions (M2)" in `implementation_plan.md` and
+`../magnet_cli/src/http_client/publish.rs`):
 
     POST   packages/{name}/versions/                                   draft
     GET    packages/{name}/versions/{version}/
     DELETE packages/{name}/versions/{version}/                         drafts only
-    PUT    packages/{name}/versions/{version}/artifacts/{abi}/{platform}/
+    PUT    packages/{name}/versions/{version}/artifacts/{kind}/{abi}/{platform}/
     POST   packages/{name}/versions/{version}/finalise/
 
 `{name}` may be in any spelling. Drafts of packages the caller doesn't own or
@@ -32,7 +33,12 @@ from rest_framework.views import APIView
 from magnet.exceptions import PayloadTooLarge
 from packages.models import Project, Release
 from packages.services import add_artifact, create_draft, delete_draft, finalise
-from packages.validators import ANY, SOURCE_KIND, normalize_name
+from packages.validators import (
+    ARTIFACT_KINDS,
+    normalize_name,
+    validate_artifact_kind_tags,
+    validate_artifact_tag,
+)
 
 SHA256_HEADER = "X-Magnet-Sha256"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -70,7 +76,10 @@ class HasPublishScope(BasePermission):
 
 
 class ArtifactSerializer(serializers.Serializer):
-    abi = serializers.CharField(source="legacy_abi")
+    """An artifact like in the index line (`GitArtifactModel`)."""
+
+    kind = serializers.ChoiceField(choices=ARTIFACT_KINDS)
+    abi = serializers.CharField()
     platform = serializers.CharField()
     sha256 = serializers.CharField(source="sha256_checksum")
 
@@ -90,7 +99,7 @@ class VersionSerializer(serializers.Serializer):
 
     @extend_schema_field(ArtifactSerializer(many=True))
     def get_artifacts(self, release: Release) -> list[dict]:
-        assets = release.assets.order_by("created", "abi", "platform")
+        assets = release.assets.order_by("created", "kind", "abi", "platform")
         return list(ArtifactSerializer(assets, many=True).data)
 
 
@@ -114,21 +123,6 @@ def get_release(request, name: str, version: str) -> Release:
             f"There is no version {version} of {project.normalized_name}."
         )
     return release
-
-
-# the abi of the source artifact before artifact kinds
-LEGACY_SOURCE_ABI = "source"
-
-
-def legacy_artifact_kind(abi: str, platform: str) -> tuple[str, str]:
-    """The kind and abi of an artifact uploaded by abi and platform only, as long as
-    the route has no artifact kind (S25): the abi `source` is the source artifact
-    (`any`/`any`), `any`/`any` the quark artifact, everything else a lepton artifact."""
-    if abi == LEGACY_SOURCE_ABI:
-        return SOURCE_KIND, ANY
-    if (abi, platform) == (ANY, ANY):
-        return "quark", abi
-    return "lepton", abi
 
 
 def version_response(release: Release, status_code=status.HTTP_200_OK) -> Response:
@@ -183,11 +177,17 @@ class ArtifactView(PublishApiView):
         request={"application/gzip": OpenApiTypes.BINARY},
         parameters=[
             OpenApiParameter(
+                "kind",
+                location=OpenApiParameter.PATH,
+                enum=ARTIFACT_KINDS,
+                description="the kind of the artifact",
+            ),
+            OpenApiParameter(
                 SHA256_HEADER,
                 location=OpenApiParameter.HEADER,
                 required=True,
                 description="sha256 of the body as 64 lowercase hex characters",
-            )
+            ),
         ],
         responses={
             201: OpenApiResponse(VersionSerializer, "stored"),
@@ -195,18 +195,24 @@ class ArtifactView(PublishApiView):
         },
         summary="Upload an artifact",
         description="The raw `.tar.gz` as body, with a `Content-Length` (at most "
-        "`MAGNET_MAX_UPLOAD_SIZE`). Artifacts are never replaced: another artifact "
-        "for the same abi and platform is a `409`.",
+        "`MAGNET_MAX_UPLOAD_SIZE`). `kind` is `source` (every version has one, "
+        "`any`/`any`), `quark` (`any`/`any`) or `lepton` (an abi and a platform "
+        "other than `any`), and the manifest in the archive must declare it "
+        "(`[artifact.<kind>]`), except `source`. Artifacts are never replaced: "
+        "another artifact for the same kind, abi and platform is a `409`.",
     )
-    def put(self, request, name: str, version: str, abi: str, platform: str):
+    def put(self, request, name: str, version: str, kind: str, abi: str, platform: str):
         release = get_release(request, name, version)
+        # before reading the body
+        validate_artifact_tag(abi)
+        validate_artifact_tag(platform)
+        validate_artifact_kind_tags(kind, abi, platform)
         sha256 = request.headers.get(SHA256_HEADER, "")
         if not SHA256_RE.match(sha256):
             raise exceptions.ValidationError(
                 f"{SHA256_HEADER} must be the sha256 of the upload "
                 "as 64 lowercase hex characters."
             )
-        kind, abi = legacy_artifact_kind(abi, platform)
         with read_upload(request) as file:
             asset, created = add_artifact(
                 request.user,

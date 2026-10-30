@@ -1,5 +1,6 @@
 """The publish API against the contract the CLI implements
-(`../magnet_cli/src/http_client/publish.rs`, "Contract additions" in the plan)."""
+(`../magnet_cli/src/http_client/publish.rs`, "The contract (M3)" and "Contract
+additions (M2)" in the plan)."""
 
 import hashlib
 import io
@@ -19,7 +20,7 @@ from users.tests.factories import UserFactory
 
 VERSIONS = "/api/v1/packages/{name}/versions/"
 VERSION = VERSIONS + "{version}/"
-ARTIFACT = VERSION + "artifacts/{abi}/{platform}/"
+ARTIFACT = VERSION + "artifacts/{kind}/{abi}/{platform}/"
 FINALISE = VERSION + "finalise/"
 
 
@@ -56,6 +57,7 @@ class Api:
     def upload(
         self,
         data: bytes,
+        kind="quark",
         abi="any",
         platform="any",
         name="foo-bar",
@@ -63,8 +65,11 @@ class Api:
         sha256=None,
         **extra,
     ):
+        url = ARTIFACT.format(
+            name=name, version=version, kind=kind, abi=abi, platform=platform
+        )
         return self.client.put(
-            ARTIFACT.format(name=name, version=version, abi=abi, platform=platform),
+            url,
             data,
             content_type="application/gzip",
             headers={
@@ -111,13 +116,19 @@ def test_publish_a_quark(api):
     response = api.upload(data)
     assert response.status_code == 201
     assert response.json()["artifacts"] == [
-        {"abi": "any", "platform": "any", "sha256": sha256(data)}
+        {"kind": "quark", "abi": "any", "platform": "any", "sha256": sha256(data)}
     ]
 
-    assert api.upload(source(), abi="source").status_code == 201
+    response = api.finalise()
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "foo-bar 1.0.0 needs its source artifact before it can be finalised."
+    }
+    assert api.upload(source(), kind="source").status_code == 201
     response = api.finalise()
     assert response.status_code == 200
     assert response.json()["state"] == "final"
+    assert [a["kind"] for a in response.json()["artifacts"]] == ["quark", "source"]
     asset = Release.objects.get().assets.get(kind="quark")
     assert asset.uploaded_via == "magnet/test"
 
@@ -188,10 +199,10 @@ def test_others_cant_publish(client, api):
         "detail": "You are not an owner or maintainer of foo-bar."
     }
 
-    api.upload(source(), abi="source")
+    api.upload(source(), kind="source")
     api.finalise()
     assert other.get().status_code == 200
-    assert other.upload(quark(), abi="source").status_code == 403
+    assert other.upload(quark(), kind="source").status_code == 403
     assert other.delete().status_code == 403
 
 
@@ -202,7 +213,9 @@ def test_get_version(client, api):
 
     response = api.get(name="Foo_Bar")
     assert response.status_code == 200
-    assert response.json()["artifacts"][0]["abi"] == "any"
+    assert response.json()["artifacts"] == [
+        {"kind": "quark", "abi": "any", "platform": "any", "sha256": sha256(quark())}
+    ]
     # also with a read-only token
     reader = Api(client, user=api.user, scope="read")
     assert reader.get().status_code == 200
@@ -225,7 +238,9 @@ def test_unauthenticated(client, token):
     for response in [
         client.post(VERSIONS.format(name="foo"), headers=headers),
         client.put(
-            ARTIFACT.format(name="foo", version="1.0.0", abi="any", platform="any"),
+            ARTIFACT.format(
+                name="foo", version="1.0.0", kind="quark", abi="any", platform="any"
+            ),
             b"data",
             content_type="application/gzip",
             headers=headers,
@@ -255,12 +270,36 @@ def test_upload_conflict(api):
         (quark(), {"sha256": "ABC"}, "X-Magnet-Sha256 must be the sha256"),
         (quark(name="other"), {}, "The manifest is for other, not foo-bar."),
         (b"not a tarball", {}, "not a valid .tar.gz"),
+        (quark(), {"abi": "API3"}, "lowercase letters"),
+        # unknown and undeclared kinds
+        (quark(), {"kind": "gluon"}, "gluon is not an artifact kind"),
+        (quark(), {"kind": "QUARK"}, "QUARK is not an artifact kind"),
+        (
+            quark(),
+            {"kind": "lepton", "abi": "api3_0", "platform": "macos_arm64"},
+            "There is no [artifact.lepton] in magnet.toml",
+        ),
+        # tags per kind
+        (
+            lepton_binary(),
+            {"kind": "lepton", "abi": "any", "platform": "any"},
+            "A lepton artifact needs an abi and a platform other than 'any'.",
+        ),
+        (
+            lepton_binary(),
+            {"kind": "lepton", "abi": "api3_0", "platform": "any"},
+            "A lepton artifact needs an abi and a platform other than 'any'.",
+        ),
         (
             quark(),
             {"abi": "api3_0", "platform": "macos_arm64"},
-            "There is no [artifact.lepton] in magnet.toml",
+            "A quark artifact has the abi and platform 'any'.",
         ),
-        (quark(), {"abi": "API3"}, "lowercase letters"),
+        (
+            source(),
+            {"kind": "source", "platform": "macos_arm64"},
+            "A source artifact has the abi and platform 'any'.",
+        ),
     ],
 )
 def test_upload_refused(api, data, kwargs, detail):
@@ -270,6 +309,90 @@ def test_upload_refused(api, data, kwargs, detail):
 
     assert response.status_code == 400
     assert detail in response.json()["detail"]
+    assert not Release.objects.get().assets.exists()
+
+
+@pytest.mark.django_db
+def test_upload_per_kind(api):
+    api.draft()
+    kinds = ("quark", "lepton")
+    uploads = [
+        (source(kinds=kinds), {"kind": "source"}),
+        (quark(kinds=kinds), {"kind": "quark"}),
+        (
+            lepton_binary(kinds=kinds),
+            {"kind": "lepton", "abi": "api3_0", "platform": "macos_arm64"},
+        ),
+    ]
+    for data, kwargs in uploads:
+        assert api.upload(data, **kwargs).status_code == 201
+    # again, e.g. a re-run of a CI job
+    for data, kwargs in uploads:
+        assert api.upload(data, **kwargs).status_code == 200
+    # another archive for the same kind, abi and platform
+    response = api.upload(
+        lepton_binary(b"other", kinds=kinds),
+        kind="lepton",
+        abi="api3_0",
+        platform="macos_arm64",
+    )
+    assert response.status_code == 409
+    assert (
+        "already has an artifact lepton-api3_0-macos_arm64"
+        in (response.json()["detail"])
+    )
+
+    assert api.get().json()["artifacts"] == [
+        {"kind": kind, "abi": abi, "platform": platform, "sha256": sha256(data)}
+        for data, (kind, abi, platform) in [
+            (uploads[0][0], ("source", "any", "any")),
+            (uploads[1][0], ("quark", "any", "any")),
+            (uploads[2][0], ("lepton", "api3_0", "macos_arm64")),
+        ]
+    ]
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("index")
+def test_finalise_names_what_is_missing(api):
+    api.draft()
+    kinds = ("quark", "lepton")
+    for data, kwargs, missing in [
+        (
+            quark(kinds=kinds),
+            {},
+            "its source artifact and a lepton artifact",
+        ),
+        (source(kinds=kinds), {"kind": "source"}, "a lepton artifact"),
+        (
+            lepton_binary(kinds=kinds),
+            {"kind": "lepton", "abi": "api3_0", "platform": "macos_arm64"},
+            None,
+        ),
+    ]:
+        assert api.upload(data, **kwargs).status_code == 201
+        response = api.finalise()
+        if missing:
+            assert response.status_code == 400
+            assert response.json() == {
+                "detail": f"foo-bar 1.0.0 needs {missing} before it can be finalised."
+            }
+    assert response.status_code == 200
+    assert response.json()["state"] == "final"
+
+
+@pytest.mark.django_db
+def test_old_artifact_route_is_gone(api):
+    api.draft()
+    response = api.client.put(
+        VERSION.format(name="foo-bar", version="1.0.0") + "artifacts/any/any/",
+        quark(),
+        content_type="application/gzip",
+        headers={**api.headers, "X-Magnet-Sha256": sha256(quark())},
+    )
+    assert response.status_code == 404
+    assert response.headers["Content-Type"] == "application/json"
+    assert "detail" in response.json()
 
 
 @pytest.mark.django_db
@@ -320,7 +443,7 @@ def test_read_upload_checks_the_length_before_reading(settings):
 def test_lepton_draft_needs_its_source(api):
     api.draft()
     assert api.upload(
-        lepton_binary(), abi="api3_0", platform="macos_arm64"
+        lepton_binary(), kind="lepton", abi="api3_0", platform="macos_arm64"
     ).status_code == (201)
 
     response = api.finalise()
@@ -329,10 +452,13 @@ def test_lepton_draft_needs_its_source(api):
         "detail": "foo-bar 1.0.0 needs its source artifact before it can be finalised."
     }
 
-    assert api.upload(lepton_source(), abi="source").status_code == 201
+    assert api.upload(lepton_source(), kind="source").status_code == 201
     response = api.finalise()
     assert response.status_code == 200
-    assert [a["abi"] for a in response.json()["artifacts"]] == ["api3_0", "source"]
+    assert [(a["kind"], a["abi"]) for a in response.json()["artifacts"]] == [
+        ("lepton", "api3_0"),
+        ("source", "any"),
+    ]
 
 
 @pytest.mark.django_db
@@ -346,7 +472,7 @@ def test_delete(api, django_capture_on_commit_callbacks):
 
     api.draft()
     api.upload(quark())
-    api.upload(source(), abi="source")
+    api.upload(source(), kind="source")
     api.finalise()
     response = api.delete()
     assert response.status_code == 409
@@ -369,7 +495,16 @@ def test_schema_documents_the_publish_api(client, db):
     assert {
         "/api/v1/packages/{name}/versions/",
         "/api/v1/packages/{name}/versions/{version}/",
-        "/api/v1/packages/{name}/versions/{version}/artifacts/{abi}/{platform}/",
+        "/api/v1/packages/{name}/versions/{version}/artifacts/{kind}/{abi}/{platform}/",
         "/api/v1/packages/{name}/versions/{version}/finalise/",
     } <= set(paths)
     assert "/api/v1/upload/release/" not in paths
+    assert (
+        "/api/v1/packages/{name}/versions/{version}/artifacts/{abi}/{platform}/"
+        not in paths
+    )
+    upload = paths[
+        "/api/v1/packages/{name}/versions/{version}/artifacts/{kind}/{abi}/{platform}/"
+    ]["put"]
+    [kind] = [p for p in upload["parameters"] if p["name"] == "kind"]
+    assert sorted(kind["schema"]["enum"]) == ["lepton", "quark", "source"]

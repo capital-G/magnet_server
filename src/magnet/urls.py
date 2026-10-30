@@ -48,7 +48,7 @@ urlpatterns = [
         name="api-version",
     ),
     path(
-        "api/v1/packages/<str:name>/versions/<str:version>/artifacts/<str:abi>/<str:platform>/",
+        "api/v1/packages/<str:name>/versions/<str:version>/artifacts/<str:kind>/<str:abi>/<str:platform>/",
         ArtifactView.as_view(),
         name="api-artifact",
     ),
