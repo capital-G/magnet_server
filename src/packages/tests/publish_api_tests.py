@@ -256,7 +256,7 @@ def test_upload_conflict(api):
         (
             quark(),
             {"abi": "api3_0", "platform": "macos_arm64"},
-            "has the abi and platform 'any'",
+            "There is no [artifact.lepton] in magnet.toml",
         ),
         (quark(), {"abi": "API3"}, "lowercase letters"),
     ],

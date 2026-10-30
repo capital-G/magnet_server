@@ -30,7 +30,7 @@ def manifest(
     *,
     name="Foo_Bar",
     version="1.0.0",
-    kind="quark",
+    kinds=("quark",),
     sclang: str | None = ">=3.13",
     dependencies="",
     metadata='summary = "A test package"\nlicense = "MIT"\n'
@@ -41,14 +41,21 @@ def manifest(
         "[package]",
         f'name = "{name}"',
         f'version = "{version}"',
-        f'kind = "{kind}"',
     ]
     if sclang:
         lines.append(f'sclang = "{sclang}"')
-    lines += ["[metadata]", metadata, "[artifact]", 'global-paths = ["Classes/**.sc"]']
-    if kind != "quark":
+    lines += [
+        "[metadata]",
+        metadata,
+        "[artifact.source]",
+        'from = "paths"',
+        'paths = ["Classes/**", "src/**"]',
+    ]
+    if "quark" in kinds:
+        lines += ["[artifact.quark]", 'paths = ["Classes/**.sc"]']
+    if "lepton" in kinds:
         lines += [
-            'source-paths = ["Classes/**", "src/**"]',
+            "[artifact.lepton]",
             'platform-paths = { macos_arm64 = ["build/*.scx"] }',
         ]
     lines += ["[dependencies]", dependencies]
@@ -66,16 +73,15 @@ def quark(content=b"Foo {}\n", **kwargs) -> bytes:
 def lepton_source(**kwargs) -> bytes:
     return tar_gz(
         ("Classes/Foo.sc", b"Foo {}\n"),
-        ("magnet.toml", manifest(kind="lepton", **kwargs)),
+        ("magnet.toml", manifest(kinds=("lepton",), **kwargs)),
         ("src/Foo.cpp", b"// Foo\n"),
     )
 
 
 def lepton_binary(content=b"binary", **kwargs) -> bytes:
     return tar_gz(
-        ("Classes/Foo.sc", b"Foo {}\n"),
-        ("magnet.toml", manifest(kind="lepton", **kwargs)),
-        ("plugins/Foo.scx", content),
+        ("magnet.toml", manifest(kinds=("lepton",), **kwargs)),
+        ("plugins/macos_arm64/api3_0/Foo.scx", content),
     )
 
 
@@ -288,9 +294,11 @@ def test_metadata_and_crlf_dont_need_to_agree(user):
     upload(user, release, lepton_source(), abi="source")
 
     crlf = tar_gz(
-        ("Classes/Foo.sc", b"Foo {}\n"),
-        ("magnet.toml", manifest(kind="lepton", metadata="").replace(b"\n", b"\r\n")),
-        ("plugins/Foo.scx", b"binary"),
+        (
+            "magnet.toml",
+            manifest(kinds=("lepton",), metadata="").replace(b"\n", b"\r\n"),
+        ),
+        ("plugins/macos_arm64/api3_0/Foo.scx", b"binary"),
     )
     upload(user, release, crlf, abi="api3_0", platform="macos_arm64")
 
@@ -320,7 +328,8 @@ def test_manifest_must_match_the_release(user, kwargs, error):
 @pytest.mark.django_db
 def test_quark_tags(user):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
-    with pytest.raises(ValidationError, match="has the abi and platform 'any'"):
+    # until the API has the kind (S25), other tags than any/any mean a lepton
+    with pytest.raises(ValidationError, match=r"There is no \[artifact.lepton\]"):
         upload(user, release, quark(), abi="api3_0", platform="macos_arm64")
 
 
@@ -329,7 +338,7 @@ def test_source_artifact_has_platform_any(user):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
     data = tar_gz(
         ("Classes/Foo.sc", b""),
-        ("magnet.toml", manifest(kind="lepton")),
+        ("magnet.toml", manifest(kinds=("lepton",))),
         ("plugins/Foo.scx", b""),
     )
     with pytest.raises(ValidationError, match="platform 'any'"):
@@ -374,6 +383,10 @@ def test_kinds_are_per_version(index, user):
         (
             "bar = { legacy-quark = true }",
             "bar is a legacy quark without a git URL and ref, add `git = ",
+        ),
+        (
+            f'bar = {{ legacy-quark = true, git = {{ ref = "{SHA}" }} }}',
+            'bar is a legacy quark pinned by name, add `url = "…"` and `ref = ',
         ),
         (
             f'bar = {{ git = {{ url = "https://x.org/bar.git", ref = "{SHA}", tag = "v1" }} }}',

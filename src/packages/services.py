@@ -16,7 +16,7 @@ from django.db import IntegrityError, transaction
 from django.utils.translation import gettext as _
 
 from git_db.db import get_git_database
-from packages.archive import SOURCE_ABI, InspectedArtifact, inspect_artifact
+from packages.archive import InspectedArtifact, declared_kinds, inspect_artifact
 from packages.models import (
     ANY,
     SOURCE_KIND,
@@ -199,6 +199,16 @@ def git_dependency(name: str, value: dict[str, Any]) -> dict[str, Any]:
             )
             % {"name": name}
         )
+    if "url" not in git:
+        # only a legacy quark can leave it out, the CLI looks it up in the quarks
+        # directory then; the index needs a fixed URL
+        raise ValidationError(
+            _(
+                '%(name)s is a legacy quark pinned by name, add `url = "…"` and '
+                '`ref = "<commit SHA>"` to its git table'
+            )
+            % {"name": name}
+        )
     if len([key for key in ("branch", "tag", "ref") if key in git]) > 1:
         raise ValidationError(
             _("%(name)s can only have one of branch, tag or ref") % {"name": name}
@@ -302,21 +312,26 @@ def index_fields(manifest: dict[str, Any], release: Release) -> IndexFields:
     if sclang is not None:
         validate_version_req(sclang)
     return IndexFields(
-        # the manifest's single kind, until the archive inspection knows the
-        # `[artifact.<kind>]` tables (S23)
-        kinds=[package["kind"]],
+        kinds=declared_kinds(manifest),
         sclang=sclang,
         dependencies=manifest_dependencies(manifest, release.project.normalized_name),
     )
 
 
-def legacy_artifact_kind(kinds: list[str], abi: str) -> tuple[str, str]:
+# the abi of the source artifact before artifact kinds
+LEGACY_SOURCE_ABI = "source"
+
+
+def legacy_artifact_kind(abi: str, platform: str) -> tuple[str, str]:
     """The kind and abi of an artifact uploaded by abi and platform only, as long as
     the publish API has no artifact kind (S25): the abi `source` is the source
-    artifact (`any`/`any`), every other artifact has the version's single kind."""
-    if abi == SOURCE_ABI:
+    artifact (`any`/`any`), `any`/`any` the quark artifact, everything else a lepton
+    artifact."""
+    if abi == LEGACY_SOURCE_ABI:
         return SOURCE_KIND, ANY
-    return kinds[0], abi
+    if (abi, platform) == (ANY, ANY):
+        return "quark", abi
+    return "lepton", abi
 
 
 def stored_index_fields(release: Release) -> IndexFields:
@@ -427,15 +442,13 @@ def add_artifact(
             _("The sha256 of the upload is %(actual)s, not %(sent)s.")
             % {"actual": actual, "sent": sha256}
         )
-    if release.kinds:
-        kind, artifact_abi = legacy_artifact_kind(release.kinds, abi)
-        if existing := _existing_asset(release, kind, artifact_abi, platform, actual):
-            return existing, False
-
-    inspected = inspect_artifact(file, abi, platform)
-    fields = index_fields(inspected.manifest, release)
-    kind, abi = legacy_artifact_kind(fields.kinds, abi)
+    kind, abi = legacy_artifact_kind(abi, platform)
     validate_artifact_kind_tags(kind, abi, platform)
+    if existing := _existing_asset(release, kind, abi, platform, actual):
+        return existing, False
+
+    inspected = inspect_artifact(file, kind, abi, platform)
+    fields = index_fields(inspected.manifest, release)
 
     with transaction.atomic():
         # serializes the uploads of a version, e.g. of a CI matrix

@@ -125,6 +125,11 @@ def validate_release_kinds(value: Any) -> None:
 def validate_artifact_kind_tags(kind: str, abi: str, platform: str) -> None:
     """The abi and platform an artifact of `kind` can have: the source and quark
     artifacts run everywhere, a lepton targets an abi and a platform."""
+    if kind not in ARTIFACT_KINDS:
+        raise ValidationError(
+            _("%(kind)s is not an artifact kind, choose from %(kinds)s."),
+            params={"kind": kind, "kinds": ", ".join(ARTIFACT_KINDS)},
+        )
     if kind in PORTABLE_KINDS and (abi, platform) != (ANY, ANY):
         raise ValidationError(
             _("A %(kind)s artifact has the abi and platform '%(any)s'."),

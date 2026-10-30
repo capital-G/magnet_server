@@ -21,16 +21,22 @@ from django.utils.translation import gettext_lazy as _
 from jsonschema.exceptions import best_match
 
 from packages.globs import GlobError, GlobSet
+from packages.validators import (
+    RELEASE_KINDS,
+    SOURCE_KIND,
+    validate_artifact_kind_tags,
+)
 
 MANIFEST_FILE = "magnet.toml"
 # packaged if the manifest names no readme and the project has one
 DEFAULT_README = "README.md"
 # never packaged if at the project root
 NEVER_PACKAGED = {"dist", "magnet_packages", "sclang_conf.yaml"}
-# leptons and gluons have a source artifact (`source`/`any`), quarks don't
-SOURCE_ABI = "source"
-# where the binaries of `platform-paths` end up within an artifact
+# where the binaries of `[artifact.lepton] platform-paths` end up within a lepton
+# artifact: `plugins/<platform>/<abi>/<file name>`
 PLUGINS_DIR = "plugins"
+# never part of a source from git, whose hidden files are packaged
+GIT_DIR = ".git"
 
 DIGITS = "0123456789"
 
@@ -52,6 +58,8 @@ class ArchiveEntries:
 class InspectedArtifact:
     # `magnet.toml`, valid according to the manifest schema
     manifest: dict[str, Any]
+    # the kinds the manifest declares (`declared_kinds`), at least one
+    kinds: list[str]
     readme: str | None
     files: list[str]
 
@@ -227,68 +235,79 @@ def readme_path(manifest: dict[str, Any]) -> str:
     return "/".join(path.parts)
 
 
-def refused_files(
-    files: list[str], manifest: dict[str, Any], abi: str, platform: str
-) -> list[str]:
-    """The files of an artifact which `magnet package` wouldn't have selected
-    (`collect.rs: collect_files`), each with the reason. Every file must be
-    `magnet.toml`, the readme, or selected by the globs of `[artifact]`:
-    `source-paths` for the source artifact (`source`/`any`), else `global-paths`
-    or, for leptons and gluons, a binary in `plugins/`, whose platform needs an entry
-    in `platform-paths` (the binaries themselves aren't matched against its globs)."""
-    kind = manifest["package"]["kind"]
+def declared_kinds(manifest: dict[str, Any]) -> list[str]:
+    """The kinds a manifest declares, i.e. its `[artifact.<kind>]` tables, in the order
+    of `RELEASE_KINDS` (like the CLI's `artifact_kinds`)."""
     artifact = manifest.get("artifact", {})
-    is_source = (abi, platform) == (SOURCE_ABI, "any")
-    binary_platforms = artifact.get("platform-paths", {})
-    if kind == "quark":
-        if is_source:
+    return [kind for kind in RELEASE_KINDS if kind in artifact]
+
+
+def refused_files(
+    files: list[str], manifest: dict[str, Any], kind: str, abi: str, platform: str
+) -> list[str]:
+    """The files of an artifact of `kind` which `magnet package` wouldn't have selected
+    (`collect.rs: collect_files`), each with the reason. Every file must be
+    `magnet.toml`, the readme, or
+    - for the source from git: a file git tracks, hidden ones included, but nothing
+      in `.git/`, excluded or never packaged (the files can't be checked against git);
+    - for the source from `paths` and the quark: selected by their `paths`, and neither
+      hidden, excluded nor never packaged;
+    - for a lepton: a binary in `plugins/<platform>/<abi>/` (only their file names are
+      left, so they aren't matched against the globs of `platform-paths`)."""
+    artifact = manifest.get("artifact", {})
+    from_git = False
+    globs: list[str] = []
+    globs_name = ""
+    if kind == SOURCE_KIND:
+        source = artifact.get("source", {})
+        from_git = source.get("from", "git") == "git"
+        globs, globs_name = source.get("paths", []), "[artifact.source] paths"
+        if not from_git and not globs:
             raise ValidationError(
                 _(
-                    "A quark has no source artifact, since its artifact already is the source."
+                    '[artifact.source] needs `paths` with `from = "paths"`, which '
+                    "select the files of the source artifact."
                 )
             )
-        if binary_platforms:
-            raise ValidationError(
-                _("A quark can not have `platform-paths`, since it has no binaries.")
-            )
-    has_binaries = kind != "quark" and not is_source
-    if has_binaries and platform not in binary_platforms:
-        raise ValidationError(
-            _(
-                "There are no `platform-paths` for %(platform)s in [artifact], "
-                "which select the binaries of the package."
-            ),
-            params={"platform": platform},
-        )
-    globs_name = "source-paths" if is_source else "global-paths"
+    elif kind == "quark":
+        globs, globs_name = artifact["quark"]["paths"], "[artifact.quark] paths"
     try:
-        selected = GlobSet(artifact.get(globs_name, []))
+        selected = GlobSet(globs)
         exclude = GlobSet(artifact.get("exclude", []))
     except GlobError as e:
         raise ValidationError(str(e)) from e
     always_packaged = {MANIFEST_FILE, readme_path(manifest)}
+    plugins = [PLUGINS_DIR, platform, abi]
 
     refused = []
     for path in files:
         if path in always_packaged:
             continue
         parts = path.split("/")
-        if any(part.startswith(".") for part in parts):
+        if kind == "lepton":
+            if len(parts) != len(plugins) + 1 or parts[:-1] != plugins:
+                refused.append(f"{path} (not a binary in {'/'.join(plugins)}/)")
+        elif from_git and GIT_DIR in parts:
+            refused.append(f"{path} ({GIT_DIR} is never packaged)")
+        elif not from_git and any(part.startswith(".") for part in parts):
             refused.append(f"{path} (hidden files are never packaged)")
         elif parts[0] in NEVER_PACKAGED:
             refused.append(f"{path} ({parts[0]} is never packaged)")
-        elif has_binaries and len(parts) == 2 and parts[0] == PLUGINS_DIR:
-            continue
         elif exclude.matches(path):
             refused.append(f"{path} (matched by exclude)")
-        elif not selected.matches(path):
+        elif not from_git and not selected.matches(path):
             refused.append(f"{path} (not selected by {globs_name})")
     return refused
 
 
-def inspect_artifact(file: File, abi: str, platform: str) -> InspectedArtifact:
-    """All checks of an uploaded artifact (`read_archive`, the manifest and the file
-    selection), raising a `ValidationError` whose message the API returns."""
+def inspect_artifact(
+    file: File, kind: str, abi: str, platform: str
+) -> InspectedArtifact:
+    """All checks of an uploaded artifact of `kind` (`read_archive`, the manifest, the
+    tags and the file selection), raising a `ValidationError` whose message the API
+    returns. The manifest must declare `kind` (except `source`, which every version
+    has), and a lepton artifact's platform needs its `platform-paths`."""
+    validate_artifact_kind_tags(kind, abi, platform)
     entries = read_archive(file)
     if entries.manifest is None:
         raise ValidationError(
@@ -302,8 +321,35 @@ def inspect_artifact(file: File, abi: str, platform: str) -> InspectedArtifact:
             _("%(file)s can't be published with [overrides]: %(names)s"),
             params={"file": MANIFEST_FILE, "names": ", ".join(sorted(overrides))},
         )
+    kinds = declared_kinds(manifest)
+    if not kinds:
+        raise ValidationError(
+            _(
+                "%(file)s has neither [artifact.quark] nor [artifact.lepton], so the "
+                "package would only consist of its source."
+            ),
+            params={"file": MANIFEST_FILE},
+        )
+    if kind != SOURCE_KIND and kind not in kinds:
+        raise ValidationError(
+            _(
+                "There is no [artifact.%(kind)s] in %(file)s, so the package has no "
+                "%(kind)s artifact."
+            ),
+            params={"kind": kind, "file": MANIFEST_FILE},
+        )
+    if kind == "lepton" and platform not in manifest["artifact"]["lepton"].get(
+        "platform-paths", {}
+    ):
+        raise ValidationError(
+            _(
+                "There are no `platform-paths` for %(platform)s in [artifact.lepton], "
+                "which select the binaries of the package."
+            ),
+            params={"platform": platform},
+        )
 
-    if refused := refused_files(entries.files, manifest, abi, platform):
+    if refused := refused_files(entries.files, manifest, kind, abi, platform):
         listed = ", ".join(refused[:MAX_LISTED_FILES])
         if len(refused) > MAX_LISTED_FILES:
             listed += f" and {len(refused) - MAX_LISTED_FILES} more"
@@ -323,4 +369,6 @@ def inspect_artifact(file: File, abi: str, platform: str) -> InspectedArtifact:
             _("The readme %(path)s of [metadata] is missing in the archive."),
             params={"path": path},
         )
-    return InspectedArtifact(manifest=manifest, readme=readme, files=entries.files)
+    return InspectedArtifact(
+        manifest=manifest, kinds=kinds, readme=readme, files=entries.files
+    )

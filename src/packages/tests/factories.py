@@ -28,29 +28,35 @@ magnet-version = 1
 [package]
 name = "foo"
 version = "1.0.0"
-kind = "quark"
 sclang = ">=3.13"
 
 [metadata]
 summary = "A test quark"
 
 [artifact]
-global-paths = ["Classes/**.sc", "HelpSource/**/*"]
 exclude = ["Classes/Private/**"]
+
+[artifact.quark]
+paths = ["Classes/**.sc", "HelpSource/**/*"]
 """
 
+# a quark with server plugins, and its source from `paths` (`collect.rs: LEPTON`)
 LEPTON_MANIFEST = """\
 magnet-version = 1
 
 [package]
 name = "foo"
 version = "1.0.0"
-kind = "lepton"
 
-[artifact]
-global-paths = ["Classes/**.sc"]
+[artifact.source]
+from = "paths"
+paths = ["Classes/**", "src/**", "CMakeLists.txt"]
+
+[artifact.quark]
+paths = ["Classes/**.sc"]
+
+[artifact.lepton]
 platform-paths = { macos_arm64 = ["build/*.scx"] }
-source-paths = ["Classes/**", "src/**", "CMakeLists.txt"]
 """
 
 
@@ -75,6 +81,26 @@ def quark(*extra: tuple[str, bytes] | tarfile.TarInfo, manifest=QUARK_MANIFEST):
         ("HelpSource/Classes/Foo.schelp", b"title:: Foo\n"),
         ("README.md", b"# Foo\n"),
         ("magnet.toml", manifest.encode()),
+        *extra,
+    )
+
+
+def lepton(*extra: tuple[str, bytes] | tarfile.TarInfo, manifest=LEPTON_MANIFEST):
+    """The lepton artifact `api3_0`/`macos_arm64` of `LEPTON_MANIFEST`."""
+    return tar_gz(
+        ("magnet.toml", manifest.encode()),
+        ("plugins/macos_arm64/api3_0/Foo.scx", b"binary"),
+        *extra,
+    )
+
+
+def source(*extra: tuple[str, bytes] | tarfile.TarInfo, manifest=LEPTON_MANIFEST):
+    """The source artifact of `LEPTON_MANIFEST` (`from = "paths"`)."""
+    return tar_gz(
+        ("CMakeLists.txt", b"# Foo\n"),
+        ("Classes/Foo.sc", b"Foo {}\n"),
+        ("magnet.toml", manifest.encode()),
+        ("src/Foo.cpp", b"// Foo\n"),
         *extra,
     )
 

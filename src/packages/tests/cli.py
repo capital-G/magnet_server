@@ -38,5 +38,12 @@ def fixtures_have_kinds(fixtures: Path) -> bool:
 needs_cli_without_artifact_kinds = pytest.mark.skipif(
     cli_has_artifact_kinds(),
     reason="written for the CLI before artifact kinds, which ../magnet_cli has "
-    "already; adapted in S23 (archive) and S25 (publish)",
+    "already; adapted in S25 (publish)",
+)
+
+
+# for the tests which use the manifest with artifact kinds
+needs_cli_with_artifact_kinds = pytest.mark.skipif(
+    not cli_has_artifact_kinds(),
+    reason="needs ../magnet_cli with artifact kinds (client step C8.1)",
 )

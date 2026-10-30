@@ -1,19 +1,39 @@
 import json
+import os
+import re
 import subprocess
 import tarfile
+from pathlib import Path
 
 import pytest
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 
+from git_db.db import GIT_ENV
 from packages.archive import SCHEMA_PATH, inspect_artifact
-from packages.tests.cli import MAGNET, MAGNET_CLI, needs_cli_without_artifact_kinds
-from packages.tests.factories import LEPTON_MANIFEST, QUARK_MANIFEST, quark, tar_gz
+from packages.tests.cli import MAGNET, MAGNET_CLI, needs_cli_with_artifact_kinds
+from packages.tests.factories import (
+    LEPTON_MANIFEST,
+    QUARK_MANIFEST,
+    lepton,
+    quark,
+    source,
+    tar_gz,
+)
 from packages.validators import validate_artifact_archive
 
 
-def inspect(data: bytes, abi: str = "any", platform: str = "any"):
-    return inspect_artifact(ContentFile(data, name="upload.tar.gz"), abi, platform)
+def inspect(data: bytes, kind="quark", abi="any", platform="any"):
+    return inspect_artifact(
+        ContentFile(data, name="upload.tar.gz"), kind, abi, platform
+    )
+
+
+def inspect_lepton(data: bytes, abi="api3_0", platform="macos_arm64"):
+    return inspect(data, "lepton", abi, platform)
+
+
+GIT_SOURCE_MANIFEST = QUARK_MANIFEST  # no [artifact.source]: `from = "git"`
 
 
 def link(name: str, type=tarfile.SYMTYPE) -> tarfile.TarInfo:
@@ -29,9 +49,9 @@ def test_valid_quark():
     assert artifact.manifest["package"] == {
         "name": "foo",
         "version": "1.0.0",
-        "kind": "quark",
         "sclang": ">=3.13",
     }
+    assert artifact.kinds == ["quark"]
     assert artifact.readme == "# Foo\n"
     assert artifact.files == [
         "Classes/Foo.sc",
@@ -68,10 +88,40 @@ def test_manifest_with_crlf():
             "invalid at top level: Additional properties are not allowed",
         ),
         (
-            quark(manifest=QUARK_MANIFEST.replace('"quark"', '"plugin"')),
-            "invalid at package.kind",
+            quark(
+                manifest=QUARK_MANIFEST.replace(
+                    'version = "1.0.0"', 'version = "1.0.0"\nkind = "quark"'
+                )
+            ),
+            "invalid at package: Additional properties are not allowed ('kind' was unexpected)",
         ),
-        (quark(("Classes/notes.txt", b"")), "notes.txt (not selected by global-paths)"),
+        (
+            quark(
+                manifest=QUARK_MANIFEST.replace(
+                    "exclude = [", 'global-paths = ["Classes/**.sc"]\nexclude = ['
+                )
+            ),
+            "invalid at artifact: Additional properties are not allowed ('global-paths' was unexpected)",
+        ),
+        (
+            quark(
+                manifest=QUARK_MANIFEST.replace("[artifact.quark]", "[artifact.gluon]")
+            ),
+            "invalid at artifact: Additional properties are not allowed ('gluon' was unexpected)",
+        ),
+        (
+            quark(
+                manifest=QUARK_MANIFEST.replace(
+                    '[artifact.quark]\npaths = ["Classes/**.sc", "HelpSource/**/*"]\n',
+                    "",
+                )
+            ),
+            "magnet.toml has neither [artifact.quark] nor [artifact.lepton], so the package would only consist of its source",
+        ),
+        (
+            quark(("Classes/notes.txt", b"")),
+            "notes.txt (not selected by [artifact.quark] paths)",
+        ),
         (quark(("Classes/Private/A.sc", b"")), "Private/A.sc (matched by exclude)"),
         (quark(("Classes/.DS_Store", b"")), "(hidden files are never packaged)"),
         (quark(("dist/foo.tar.gz", b"")), "(dist is never packaged)"),
@@ -82,7 +132,7 @@ def test_manifest_with_crlf():
                 (
                     "magnet.toml",
                     QUARK_MANIFEST.replace(
-                        "[artifact]", 'readme = "X.md"\n[artifact]'
+                        "\n[artifact]", 'readme = "X.md"\n\n[artifact]'
                     ).encode(),
                 ),
             ),
@@ -109,11 +159,11 @@ def test_refused_files_are_listed():
 
     assert error.value.messages == [
         "The archive contains files which the manifest doesn't select: "
-        "Classes/0.txt (not selected by global-paths), "
-        "Classes/1.txt (not selected by global-paths), "
-        "Classes/2.txt (not selected by global-paths), "
-        "Classes/3.txt (not selected by global-paths), "
-        "Classes/4.txt (not selected by global-paths) and 2 more"
+        "Classes/0.txt (not selected by [artifact.quark] paths), "
+        "Classes/1.txt (not selected by [artifact.quark] paths), "
+        "Classes/2.txt (not selected by [artifact.quark] paths), "
+        "Classes/3.txt (not selected by [artifact.quark] paths), "
+        "Classes/4.txt (not selected by [artifact.quark] paths) and 2 more"
     ]
 
 
@@ -145,7 +195,7 @@ def test_too_large_manifest(settings):
 def test_readme_from_metadata_may_be_excluded():
     # `collect.rs: test_readme`: the readme is always packaged
     manifest = QUARK_MANIFEST.replace(
-        "[artifact]", 'readme = "docs/intro.md"\n[artifact]'
+        "\n[artifact]", 'readme = "docs/intro.md"\n\n[artifact]'
     ).replace('exclude = ["Classes/Private/**"]', 'exclude = ["docs/**"]')
     data = tar_gz(
         ("Classes/Foo.sc", b""),
@@ -164,21 +214,31 @@ def test_quark_without_readme():
     assert inspect(data).readme is None
 
 
-def test_quark_has_no_source_artifact():
-    with pytest.raises(ValidationError, match="A quark has no source artifact"):
-        inspect(quark(), abi="source")
-
-
 def test_quark_has_no_plugins():
     with pytest.raises(ValidationError, match="plugins/Foo.scx"):
         inspect(quark(("plugins/Foo.scx", b"")))
-    with pytest.raises(ValidationError, match="A quark can not have `platform-paths`"):
-        inspect(
-            quark(
-                manifest=QUARK_MANIFEST
-                + '\n[artifact.platform-paths]\nmacos_arm64 = ["build/*.scx"]\n'
-            )
-        )
+
+
+def test_hidden_file_in_quark_is_refused():
+    with pytest.raises(ValidationError, match="Classes/.Foo.sc .hidden files"):
+        inspect(quark(("Classes/.Foo.sc", b"")))
+
+
+def test_quark_artifact_needs_quark_table():
+    manifest = LEPTON_MANIFEST.replace(
+        '[artifact.quark]\npaths = ["Classes/**.sc"]\n', ""
+    )
+    with pytest.raises(
+        ValidationError,
+        match=r"There is no \[artifact.quark\] in magnet.toml, so the package has no "
+        "quark artifact",
+    ):
+        inspect(quark(manifest=manifest))
+
+
+def test_lepton_artifact_needs_lepton_table():
+    with pytest.raises(ValidationError, match=r"There is no \[artifact.lepton\]"):
+        inspect_lepton(lepton(manifest=QUARK_MANIFEST))
 
 
 def test_overrides_are_refused():
@@ -189,49 +249,150 @@ def test_overrides_are_refused():
         inspect(quark(manifest=manifest))
 
 
-def test_lepton_artifacts():
-    # `collect.rs: test_lepton_artifact` and `test_lepton_source`
-    manifest = ("magnet.toml", LEPTON_MANIFEST.encode())
-    binary = tar_gz(("Classes/Foo.sc", b""), manifest, ("plugins/Foo.scx", b""))
-    source = tar_gz(
-        ("CMakeLists.txt", b""), ("Classes/Foo.sc", b""), manifest, ("src/Foo.cpp", b"")
-    )
+def test_valid_lepton():
+    # `collect.rs: test_lepton_artifact`
+    artifact = inspect_lepton(lepton(("README.md", b"# Foo\n")))
 
-    assert inspect(binary, abi="api3_0", platform="macos_arm64").manifest["package"][
-        "kind"
-    ] == ("lepton")
-    inspect(source, abi="source", platform="any")
-    with pytest.raises(ValidationError, match="src/Foo.cpp"):
-        inspect(source, abi="api3_0", platform="macos_arm64")
-    with pytest.raises(ValidationError, match="plugins/Foo.scx"):
-        inspect(binary, abi="source", platform="any")
-    with pytest.raises(ValidationError, match="plugins/sub/Foo.scx"):
-        inspect(
-            tar_gz(manifest, ("plugins/sub/Foo.scx", b"")),
-            abi="api3_0",
-            platform="macos_arm64",
+    assert artifact.kinds == ["quark", "lepton"]
+    assert artifact.files == [
+        "magnet.toml",
+        "plugins/macos_arm64/api3_0/Foo.scx",
+        "README.md",
+    ]
+    assert artifact.readme == "# Foo\n"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "plugins/Foo.scx",
+        "plugins/macos_arm64/Foo.scx",
+        "plugins/macos_arm64/api3_0/sub/Foo.scx",
+        "plugins/macos_arm64/api4_0/Foo.scx",
+        "plugins/linux_x86_64/api3_0/Foo.so",
+        "build/Foo.scx",
+        "Classes/Foo.sc",
+    ],
+)
+def test_lepton_files_outside_their_plugins_folder_are_refused(path):
+    with pytest.raises(
+        ValidationError, match=f"{path} .not a binary in plugins/macos_arm64/api3_0/"
+    ):
+        inspect_lepton(lepton((path, b"")))
+
+
+@pytest.mark.parametrize("platform", ["linux_x86_64", "windows_x86_64"])
+def test_lepton_needs_platform_paths_for_its_platform(platform):
+    # `collect.rs: test_binaries_of_the_platform`
+    with pytest.raises(
+        ValidationError,
+        match=f"There are no `platform-paths` for {platform} in \\[artifact.lepton\\]",
+    ):
+        inspect_lepton(
+            tar_gz(
+                ("magnet.toml", LEPTON_MANIFEST.encode()),
+                (f"plugins/{platform}/api3_0/Foo.so", b""),
+            ),
+            platform=platform,
         )
 
 
-@pytest.mark.parametrize("platform", ["linux_x86_64", "any"])
-def test_lepton_binaries_need_platform_paths_for_their_platform(platform):
-    # `collect.rs: test_binaries_of_the_platform`
-    binary = tar_gz(
-        ("Classes/Foo.sc", b""),
-        ("magnet.toml", LEPTON_MANIFEST.encode()),
-        ("plugins/Foo.so", b""),
-    )
-    with pytest.raises(
-        ValidationError, match=f"There are no `platform-paths` for {platform}"
-    ):
-        inspect(binary, abi="api3_0", platform=platform)
+@pytest.mark.parametrize(
+    "kind, abi, platform",
+    [
+        ("lepton", "any", "macos_arm64"),
+        ("lepton", "api3_0", "any"),
+        ("quark", "api3_0", "macos_arm64"),
+        ("source", "any", "macos_arm64"),
+        ("gluon", "any", "any"),
+    ],
+)
+def test_tags_per_kind(kind, abi, platform):
+    with pytest.raises(ValidationError):
+        inspect(lepton(), kind, abi, platform)
 
 
 def test_unknown_platform_in_manifest():
     # `collect.rs: test_unknown_platform_in_manifest`
     manifest = LEPTON_MANIFEST.replace("macos_arm64 =", "macos =")
     with pytest.raises(ValidationError, match="platform-paths"):
-        inspect(tar_gz(("magnet.toml", manifest.encode())), abi="source")
+        inspect(source(manifest=manifest), "source")
+
+
+def test_source_of_paths():
+    # `collect.rs: test_source_of_paths`
+    artifact = inspect(source(("README.md", b"# Foo\n")), "source")
+
+    assert artifact.kinds == ["quark", "lepton"]
+    assert artifact.files == [
+        "CMakeLists.txt",
+        "Classes/Foo.sc",
+        "magnet.toml",
+        "src/Foo.cpp",
+        "README.md",
+    ]
+    for path, reason in [
+        ("build/Foo.scx", "not selected by [artifact.source] paths"),
+        ("src/.cache", "hidden files are never packaged"),
+        ("dist/foo.tar.gz", "dist is never packaged"),
+    ]:
+        with pytest.raises(ValidationError, match=re.escape(f"{path} ({reason})")):
+            inspect(source((path, b"")), "source")
+
+
+def test_source_of_paths_needs_paths():
+    # `collect.rs: test_source_paths_required`
+    manifest = LEPTON_MANIFEST.replace(
+        'paths = ["Classes/**", "src/**", "CMakeLists.txt"]\n', ""
+    )
+    with pytest.raises(ValidationError, match=r"\[artifact.source\] needs `paths`"):
+        inspect(source(manifest=manifest), "source")
+
+
+def git_source(*extra: tuple[str, bytes]) -> bytes:
+    return tar_gz(
+        (".github/workflows/ci.yml", b"on: push\n"),
+        (".gitignore", b"dist/\n"),
+        ("Classes/Foo.sc", b"Foo {}\n"),
+        ("notes.txt", b"anything git tracks\n"),
+        ("magnet.toml", GIT_SOURCE_MANIFEST.encode()),
+        *extra,
+    )
+
+
+def test_source_from_git():
+    # any file git tracks, hidden ones too: they can't be checked against git
+    artifact = inspect(git_source(), "source")
+    assert artifact.files == [
+        ".github/workflows/ci.yml",
+        ".gitignore",
+        "Classes/Foo.sc",
+        "notes.txt",
+        "magnet.toml",
+    ]
+
+
+@pytest.mark.parametrize(
+    "path, reason",
+    [
+        (".git/config", ".git is never packaged"),
+        ("sub/.git/HEAD", ".git is never packaged"),
+        ("dist/foo.tar.gz", "dist is never packaged"),
+        ("magnet_packages/bar/Bar.sc", "magnet_packages is never packaged"),
+    ],
+)
+def test_source_from_git_refuses(path, reason):
+    with pytest.raises(ValidationError, match=f"{path} .{reason}"):
+        inspect(git_source((path, b"")), "source")
+
+
+def test_source_from_git_respects_exclude():
+    manifest = GIT_SOURCE_MANIFEST.replace(
+        'exclude = ["Classes/Private/**"]', 'exclude = ["notes.txt"]'
+    )
+    data = tar_gz(("notes.txt", b""), ("magnet.toml", manifest.encode()))
+    with pytest.raises(ValidationError, match=r"notes.txt \(matched by exclude\)"):
+        inspect(data, "source")
 
 
 @pytest.mark.parametrize(
@@ -253,88 +414,110 @@ def test_m1_checks_need_no_manifest():
 
 
 @pytest.mark.skipif(not MAGNET_CLI.is_dir(), reason="needs ../magnet_cli")
-@needs_cli_without_artifact_kinds
+@needs_cli_with_artifact_kinds
 def test_schema_is_the_clis():
     vendored = json.loads(SCHEMA_PATH.read_text())
     cli = json.loads((MAGNET_CLI / "schemes" / "magnet.v1.schema.json").read_text())
     assert vendored == cli
 
 
-@pytest.mark.skipif(not MAGNET.is_file(), reason="needs a debug build of ../magnet_cli")
-@needs_cli_without_artifact_kinds
-def test_artifact_of_the_real_cli(tmp_path):
-    for path, content in {
-        "Classes/Foo.sc": "Foo {}\n",
-        "Classes/Nested/Bar.sc": "Bar {}\n",
-        "Classes/Private/Secret.sc": "Secret {}\n",
-        "HelpSource/Classes/Foo.schelp": "title:: Foo\n",
-        "README.md": "# Foo\n",
-        "notes.txt": "not packaged\n",
-        "magnet.toml": QUARK_MANIFEST,
-    }.items():
-        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / path).write_text(content)
+def write_project(root: Path, files: dict[str, str]) -> None:
+    for path, content in files.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(content)
+
+
+def magnet_package(root: Path, **env: str) -> dict[str, bytes]:
+    """The artifacts of `magnet package` by file name."""
     subprocess.run(
         [MAGNET, "package"],
-        cwd=tmp_path,
-        env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"},
+        cwd=root,
+        env={"HOME": str(root), "PATH": "/usr/bin:/bin", **env},
         check=True,
         capture_output=True,
     )
+    return {path.name: path.read_bytes() for path in (root / "dist").iterdir()}
 
-    data = (tmp_path / "dist" / "foo-1.0.0-quark-any-any.tar.gz").read_bytes()
-    artifact = inspect(data)
 
-    assert artifact.files == [
+@pytest.mark.skipif(not MAGNET.is_file(), reason="needs a debug build of ../magnet_cli")
+@needs_cli_with_artifact_kinds
+def test_artifacts_of_the_real_cli(tmp_path):
+    write_project(
+        tmp_path,
+        {
+            ".gitignore": "dist/\n",
+            "Classes/Foo.sc": "Foo {}\n",
+            "Classes/Nested/Bar.sc": "Bar {}\n",
+            "Classes/Private/Secret.sc": "Secret {}\n",
+            "HelpSource/Classes/Foo.schelp": "title:: Foo\n",
+            "README.md": "# Foo\n",
+            "notes.txt": "only in the source\n",
+            # no [artifact.source]: the files git tracks
+            "magnet.toml": QUARK_MANIFEST,
+        },
+    )
+    git = {**os.environ, **GIT_ENV}
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-qm", "1"]):
+        subprocess.run(["git", *args], cwd=tmp_path, env=git, check=True)
+
+    artifacts = magnet_package(tmp_path)
+
+    assert sorted(artifacts) == [
+        "foo-1.0.0-quark-any-any.tar.gz",
+        "foo-1.0.0-source-any-any.tar.gz",
+    ]
+    quark_artifact = inspect(artifacts["foo-1.0.0-quark-any-any.tar.gz"])
+    assert quark_artifact.files == [
         "Classes/Foo.sc",
         "Classes/Nested/Bar.sc",
         "HelpSource/Classes/Foo.schelp",
         "README.md",
         "magnet.toml",
     ]
-    assert artifact.manifest["package"]["sclang"] == ">=3.13"
+    assert quark_artifact.manifest["package"]["sclang"] == ">=3.13"
+    source_artifact = inspect(artifacts["foo-1.0.0-source-any-any.tar.gz"], "source")
+    assert source_artifact.files == [
+        ".gitignore",
+        "Classes/Foo.sc",
+        "Classes/Nested/Bar.sc",
+        "HelpSource/Classes/Foo.schelp",
+        "README.md",
+        "magnet.toml",
+        "notes.txt",
+    ]
 
 
 @pytest.mark.skipif(not MAGNET.is_file(), reason="needs a debug build of ../magnet_cli")
-@needs_cli_without_artifact_kinds
+@needs_cli_with_artifact_kinds
 def test_lepton_artifacts_of_the_real_cli(tmp_path):
-    for path, content in {
-        "Classes/Foo.sc": "Foo {}\n",
-        "src/Foo.cpp": "// Foo\n",
-        "CMakeLists.txt": "# Foo\n",
-        "build/Foo.scx": "binary\n",
-        "build/CMakeCache.txt": "not packaged\n",
-        "magnet.toml": LEPTON_MANIFEST,
-    }.items():
-        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / path).write_text(content)
-    subprocess.run(
-        [MAGNET, "package"],
-        cwd=tmp_path,
-        env={
-            "HOME": str(tmp_path),
-            "PATH": "/usr/bin:/bin",
-            "MAGNET_ABI": "api3_0",
-            "MAGNET_PLATFORM": "macos_arm64",
+    write_project(
+        tmp_path,
+        {
+            "Classes/Foo.sc": "Foo {}\n",
+            "src/Foo.cpp": "// Foo\n",
+            "CMakeLists.txt": "# Foo\n",
+            "build/Foo.scx": "binary\n",
+            "build/CMakeCache.txt": "not packaged\n",
+            "magnet.toml": LEPTON_MANIFEST,
         },
-        check=True,
-        capture_output=True,
     )
 
-    dist = tmp_path / "dist"
-    binary = inspect(
-        (dist / "foo-1.0.0-lepton-api3_0-macos_arm64.tar.gz").read_bytes(),
-        abi="api3_0",
-        platform="macos_arm64",
-    )
-    source = inspect(
-        (dist / "foo-1.0.0-lepton-source-any.tar.gz").read_bytes(),
-        abi="source",
-        platform="any",
+    artifacts = magnet_package(
+        tmp_path, MAGNET_ABI="api3_0", MAGNET_PLATFORM="macos_arm64"
     )
 
-    assert binary.files == ["Classes/Foo.sc", "magnet.toml", "plugins/Foo.scx"]
-    assert source.files == [
+    assert sorted(artifacts) == [
+        "foo-1.0.0-lepton-api3_0-macos_arm64.tar.gz",
+        "foo-1.0.0-quark-any-any.tar.gz",
+        "foo-1.0.0-source-any-any.tar.gz",
+    ]
+    binary = inspect_lepton(artifacts["foo-1.0.0-lepton-api3_0-macos_arm64.tar.gz"])
+    assert binary.files == ["magnet.toml", "plugins/macos_arm64/api3_0/Foo.scx"]
+    assert inspect(artifacts["foo-1.0.0-quark-any-any.tar.gz"]).files == [
+        "Classes/Foo.sc",
+        "magnet.toml",
+    ]
+    assert inspect(artifacts["foo-1.0.0-source-any-any.tar.gz"], "source").files == [
         "CMakeLists.txt",
         "Classes/Foo.sc",
         "magnet.toml",
