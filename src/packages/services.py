@@ -312,9 +312,8 @@ def index_fields(manifest: dict[str, Any], release: Release) -> IndexFields:
 
 def legacy_artifact_kind(kinds: list[str], abi: str) -> tuple[str, str]:
     """The kind and abi of an artifact uploaded by abi and platform only, as long as
-    the publish API and the commands have no artifact kind (S22, S25): the abi
-    `source` is the source artifact (`any`/`any`), every other artifact has the
-    version's single kind."""
+    the publish API has no artifact kind (S25): the abi `source` is the source
+    artifact (`any`/`any`), every other artifact has the version's single kind."""
     if abi == SOURCE_ABI:
         return SOURCE_KIND, ANY
     return kinds[0], abi
@@ -574,35 +573,43 @@ def unyank(user: User, release: Release) -> None:
         logger.info(f"Unyanked {release}")
 
 
+@dataclass
+class ArtifactFile:
+    """An artifact for `publish_release`."""
+
+    kind: str
+    file: File
+    abi: str = ANY
+    platform: str = ANY
+
+
 @transaction.atomic
 def publish_release(
     *,
     name: str,
     version: str,
-    kind: str,
-    file: File,
+    kinds: list[str],
+    artifacts: list[ArtifactFile],
     owner: User,
     dependencies: dict[str, Any] | None = None,
-    abi: str = ANY,
-    platform: str = ANY,
     uploaded_via: str = "",
 ) -> Release:
-    """Publishes a version of `kind` with one artifact in one go (draft, artifact,
-    finalise), for the management commands. Unlike `add_artifact`, the kind and
-    dependencies are passed in and the artifact only gets the M1 checks, since the
+    """Publishes a version with its artifacts in one go (draft, artifacts,
+    finalise), for the management commands. Unlike `add_artifact`, the kinds and
+    dependencies are passed in and the artifacts only get the M1 checks, since the
     M1 fixture tarballs have no `magnet.toml`.
 
     Dependencies map a package name (any spelling) to a version requirement, which
     must refer to an existing project, or to a git dependency in the form of the
     index line (also the one of the manifest). If a step fails, the database
-    changes are rolled back and the stored artifact is removed again."""
+    changes are rolled back and the stored artifacts are removed again."""
     project = get_or_create_project(name=name, owner=owner)
     release, created = create_draft(owner, name, version)
     if not created:
         raise ValidationError(
             _("%(release)s exists already.") % {"release": label(release)}
         )
-    release.kinds = [kind]
+    release.kinds = kinds
     release.full_clean()
     release.save(update_fields=["kinds"])
 
@@ -631,20 +638,24 @@ def publish_release(
         dependency.full_clean()
         dependency.save()
 
-    artifact_kind, abi = legacy_artifact_kind(release.kinds, abi)
-    asset = _store_asset(
-        release,
-        owner,
-        kind=artifact_kind,
-        abi=abi,
-        platform=platform,
-        file=file,
-        uploaded_via=uploaded_via,
-    )
+    assets: list[Asset] = []
     try:
+        for artifact in artifacts:
+            assets.append(
+                _store_asset(
+                    release,
+                    owner,
+                    kind=artifact.kind,
+                    abi=artifact.abi,
+                    platform=artifact.platform,
+                    file=artifact.file,
+                    uploaded_via=uploaded_via,
+                )
+            )
         finalise(owner, release)
     except BaseException:
-        asset.file.delete(save=False)
+        for asset in assets:
+            asset.file.delete(save=False)
         raise
 
     logger.info(f"Published {project.normalized_name} {version}")

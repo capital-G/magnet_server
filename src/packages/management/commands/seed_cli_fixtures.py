@@ -1,5 +1,6 @@
 import hashlib
 import json
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -11,17 +12,17 @@ from django.core.management import BaseCommand, CommandError
 from git_db.db import GitCommandError
 from git_db.files import IndexWriteError
 from packages.management.utils import resolve_owner
-from packages.models import ANY, Release, artifact_filename
-from packages.services import get_or_create_project, publish_release
+from packages.models import Release, artifact_filename
+from packages.services import ArtifactFile, get_or_create_project, publish_release
 
 
 class Command(BaseCommand):
     help = (
         "Publishes the fixture packages of the magnet CLI (`tests/fixtures` of "
         "magnet_cli: `index/*/*.jsonl` and their tarballs in `dl/`), so the real CLI "
-        "can be tested against this server. Lines the server can't publish yet "
-        "(non-quarks) and lines without a tarball are skipped. Already published releases "
-        "are skipped too, so it's safe to run repeatedly."
+        "can be tested against this server. Lines in the format before artifact kinds "
+        "(no `kinds`) and lines with a missing tarball are skipped. Already published "
+        "releases are skipped too, so it's safe to run repeatedly."
     )
 
     def add_arguments(self, parser):
@@ -76,28 +77,37 @@ class Command(BaseCommand):
 
     def is_publishable(self, line: dict[str, Any], dl_dir: Path) -> bool:
         release = f"{line['name']} {line['version']}"
-        if line["kind"] != "quark":
-            self.stderr.write(self.style.WARNING(f"Skip {release}: not a quark"))
-            return False
-        if [(a["abi"], a["platform"]) for a in line["artifacts"]] != [(ANY, ANY)]:
+        if "kinds" not in line:
             self.stderr.write(
-                self.style.WARNING(f"Skip {release}: not a single any/any artifact")
+                self.style.WARNING(
+                    f"Skip {release}: index format before artifact kinds (no `kinds`)"
+                )
             )
             return False
-        # some fixtures only exist for the resolver tests and have fake checksums
-        path = self.tarball(line, dl_dir)
-        if not path.is_file():
-            self.stderr.write(self.style.WARNING(f"Skip {release}: no {path.name}"))
+        if not line["artifacts"]:
+            self.stderr.write(self.style.WARNING(f"Skip {release}: no artifacts"))
             return False
+        # some fixtures only exist for the resolver tests and have fake checksums
+        for artifact in line["artifacts"]:
+            path = self.tarball(line, artifact, dl_dir)
+            if not path.is_file():
+                self.stderr.write(self.style.WARNING(f"Skip {release}: no {path.name}"))
+                return False
         return True
 
-    def tarball(self, line: dict[str, Any], dl_dir: Path) -> Path:
+    def tarball(
+        self, line: dict[str, Any], artifact: dict[str, Any], dl_dir: Path
+    ) -> Path:
         return dl_dir / artifact_filename(
-            line["name"], line["version"], line["kind"], ANY, ANY
+            line["name"],
+            line["version"],
+            artifact["kind"],
+            artifact["abi"],
+            artifact["platform"],
         )
 
     def publish(self, line: dict[str, Any], dl_dir: Path, owner: User) -> None:
-        name, version, kind = line["name"], line["version"], line["kind"]
+        name, version = line["name"], line["version"]
         release = f"{name} {version}"
         if Release.objects.filter(
             project__normalized_name=name, version=version, published_at__isnull=False
@@ -105,18 +115,33 @@ class Command(BaseCommand):
             self.stdout.write(f"Skip {release}: already published")
             return
 
-        path = self.tarball(line, dl_dir)
-        expected = line["artifacts"][0]["sha256"]
-        if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-            raise CommandError(f"{path} doesn't match the sha256 of {release}")
+        for artifact in line["artifacts"]:
+            path = self.tarball(line, artifact, dl_dir)
+            if hashlib.sha256(path.read_bytes()).hexdigest() != artifact["sha256"]:
+                raise CommandError(f"{path} doesn't match the sha256 of {release}")
 
         try:
-            with path.open("rb") as f:
+            with ExitStack() as files:
+                # in the order of the line, which is the upload order
+                artifacts = [
+                    ArtifactFile(
+                        kind=artifact["kind"],
+                        abi=artifact["abi"],
+                        platform=artifact["platform"],
+                        file=File(
+                            files.enter_context(
+                                self.tarball(line, artifact, dl_dir).open("rb")
+                            ),
+                            name=f"{artifact['kind']}.tar.gz",
+                        ),
+                    )
+                    for artifact in line["artifacts"]
+                ]
                 publish_release(
                     name=name,
                     version=version,
-                    kind=kind,
-                    file=File(f, name=path.name),
+                    kinds=line["kinds"],
+                    artifacts=artifacts,
                     owner=owner,
                     dependencies=line["dependencies"],
                     uploaded_via="manage.py seed_cli_fixtures",

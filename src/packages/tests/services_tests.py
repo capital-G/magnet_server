@@ -154,12 +154,17 @@ def test_quark_from_draft_to_final(index, user, alpha):
         {
             "name": "foo-bar",
             "version": "1.0.0",
-            "kind": "quark",
+            "kinds": ["quark"],
             "sclang": ">=3.13",
             "dependencies": {"alpha": "^1"},
             "yanked": False,
             "artifacts": [
-                {"abi": "any", "platform": "any", "sha256": asset.sha256_checksum}
+                {
+                    "kind": "quark",
+                    "abi": "any",
+                    "platform": "any",
+                    "sha256": asset.sha256_checksum,
+                }
             ],
         }
     ]
@@ -196,9 +201,9 @@ def test_lepton_binary_before_its_source(index, user):
 
     [line] = index_lines(index, "foo-bar")
     # upload order
-    assert [(a["abi"], a["platform"]) for a in line["artifacts"]] == [
-        ("api3_0", "macos_arm64"),
-        ("source", "any"),
+    assert [(a["kind"], a["abi"], a["platform"]) for a in line["artifacts"]] == [
+        ("lepton", "api3_0", "macos_arm64"),
+        ("source", "any", "any"),
     ]
 
 
@@ -215,6 +220,7 @@ def test_append_to_a_final_version(index, user):
     assert created
     [line] = index_lines(index, "foo-bar")
     assert line["artifacts"][-1] == {
+        "kind": "lepton",
         "abi": "api3_0",
         "platform": "macos_arm64",
         "sha256": binary.sha256_checksum,

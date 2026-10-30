@@ -30,6 +30,7 @@ nginx also serves a static HTTP mirror of the index (`/index/`: `config.json`, `
 make up          # docker compose up -d --build; creates the index on the first start
 make superuser   # owner of the seeded packages
 make seed        # publishes the CLI's fixture packages from ../magnet_cli/tests/fixtures
+                 # (lines without `kinds`, the format before artifact kinds, are skipped)
 ```
 
 `make` uses `podman` if `docker` is no executable (e.g. only a shell alias), or pass `DOCKER=…`.

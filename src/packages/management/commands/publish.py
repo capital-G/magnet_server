@@ -1,3 +1,4 @@
+from argparse import ArgumentTypeError
 from pathlib import Path
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -8,8 +9,8 @@ from git_db.db import GitCommandError
 from git_db.files import IndexWriteError
 from packages.management.utils import resolve_owner
 from packages.models import ANY
-from packages.services import publish_release
-from packages.validators import RELEASE_KINDS
+from packages.services import ArtifactFile, publish_release
+from packages.validators import ARTIFACT_KINDS, RELEASE_KINDS
 
 
 def dependency(value: str) -> tuple[str, str]:
@@ -19,9 +20,19 @@ def dependency(value: str) -> tuple[str, str]:
     return name, requirement
 
 
+def kinds(value: str) -> list[str]:
+    """Comma-separated kinds, in the order of the index line."""
+    given = [kind.strip() for kind in value.split(",")]
+    if unknown := [kind for kind in given if kind not in RELEASE_KINDS]:
+        raise ArgumentTypeError(
+            f"unknown kinds {', '.join(unknown)}, choose from {', '.join(RELEASE_KINDS)}"
+        )
+    return [kind for kind in RELEASE_KINDS if kind in given]
+
+
 class Command(BaseCommand):
     help = (
-        "Publishes a release with its artifact: creates the project if missing, "
+        "Publishes a release with one artifact: creates the project if missing, "
         "stores the artifact and writes the release into the index."
     )
 
@@ -36,7 +47,15 @@ class Command(BaseCommand):
             "--name", required=True, help="package name, e.g. DDW_Common"
         )
         parser.add_argument("--version", required=True, help="MAJOR.MINOR.PATCH")
-        parser.add_argument("--kind", required=True, choices=RELEASE_KINDS)
+        parser.add_argument(
+            "--kinds",
+            required=True,
+            type=kinds,
+            help="the kinds the release declares, comma-separated, e.g. quark,lepton",
+        )
+        parser.add_argument(
+            "--kind", required=True, choices=ARTIFACT_KINDS, help="of the artifact"
+        )
         parser.add_argument(
             "--file", required=True, type=Path, help="the artifact as .tar.gz"
         )
@@ -65,12 +84,17 @@ class Command(BaseCommand):
                 release = publish_release(
                     name=options["name"],
                     version=options["version"],
-                    kind=options["kind"],
-                    file=File(f, name=path.name),
+                    kinds=options["kinds"],
+                    artifacts=[
+                        ArtifactFile(
+                            kind=options["kind"],
+                            file=File(f, name=path.name),
+                            abi=options["abi"],
+                            platform=options["platform"],
+                        )
+                    ],
                     owner=owner,
                     dependencies=dict(options["dependency"]),
-                    abi=options["abi"],
-                    platform=options["platform"],
                     uploaded_via="manage.py publish",
                 )
         except ValidationError as e:

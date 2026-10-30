@@ -24,6 +24,16 @@ def cli_has_artifact_kinds() -> bool:
     return "quark" in artifact.get("properties", {})
 
 
+def fixtures_have_kinds(fixtures: Path) -> bool:
+    """Whether the CLI's index fixtures are in the format with artifact kinds
+    (`kinds` in the lines, client step C8.7)."""
+    for path in (fixtures / "index").glob("*/*.jsonl"):
+        for line in path.read_text().splitlines():
+            if line.strip():
+                return "kinds" in json.loads(line)
+    return False
+
+
 # for the tests which still use the manifest with one kind per package
 needs_cli_without_artifact_kinds = pytest.mark.skipif(
     cli_has_artifact_kinds(),

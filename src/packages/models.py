@@ -646,8 +646,8 @@ class Asset(models.Model):
 
     @property
     def legacy_abi(self) -> str:
-        """The abi of the artifact in the index line and the publish API as long as
-        they have no artifact kind (S22, S25): the source's abi was `source`."""
+        """The abi of the artifact in the publish API as long as it has no artifact
+        kind (S25): the source's abi was `source`."""
         return SOURCE_KIND if self.kind == SOURCE_KIND else self.abi
 
     def make_git_entry(self):

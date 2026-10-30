@@ -17,7 +17,7 @@ from git_db.db import (
     NoArtifacts,
     get_git_database,
 )
-from git_db.files import DuplicateIndexEntry, IndexEntryMissing, KindMismatch
+from git_db.files import DuplicateIndexEntry, IndexEntryMissing
 from git_db.mirror import mirror_root
 from git_db.models import GitArtifactModel, GitIndexConfigModel, GitReleaseModel
 from packages.models import Release
@@ -64,11 +64,23 @@ def published_release(**kwargs) -> Release:
 def test_golden_index(index: GitDatabase):
     beta = ProjectFactory.create(name="Beta_Core")
     alpha_1_0 = published_release(project__name="Alpha", version="1.0.0")
-    alpha_1_1 = published_release(project=alpha_1_0.project, version="1.1.0")
-    DependencyFactory.create(release=alpha_1_1, dependency=beta, constraint="^1.0.0")
+    # a later version may declare other kinds
+    alpha_2_0 = ReleaseFactory.create(
+        project=alpha_1_0.project,
+        version="2.0.0",
+        kinds=["quark", "lepton"],
+        sclang=">=3.13",
+    )
+    for kind, abi, platform in [
+        ("source", "any", "any"),
+        ("quark", "any", "any"),
+        ("lepton", "api3_0", "macos_arm64"),
+    ]:
+        AssetFactory.create(release=alpha_2_0, kind=kind, abi=abi, platform=platform)
+    DependencyFactory.create(release=alpha_2_0, dependency=beta, constraint="^1.0.0")
 
     index.commit_release(alpha_1_0)
-    index.commit_release(alpha_1_1)
+    index.commit_release(alpha_2_0)
 
     assert show(index.repo_path, "config.json") == (
         '{"index-format": 1, "dl": "http://localhost:8000/dl/{name}/{version}/'
@@ -76,28 +88,37 @@ def test_golden_index(index: GitDatabase):
         '"http": "http://localhost:8000/index/", "api": "http://localhost:8000/"}\n'
     )
     assert show(index.repo_path, "a/alpha.jsonl") == (
-        '{"name": "alpha", "version": "1.0.0", "kind": "quark", "dependencies": {}, '
-        '"yanked": false, "artifacts": [{"abi": "any", "platform": "any", '
-        f'"sha256": "{SHA}"}}]}}\n'
-        '{"name": "alpha", "version": "1.1.0", "kind": "quark", '
-        '"dependencies": {"beta-core": "^1.0.0"}, '
-        '"yanked": false, "artifacts": [{"abi": "any", "platform": "any", '
+        '{"name": "alpha", "version": "1.0.0", "kinds": ["quark"], '
+        '"dependencies": {}, "yanked": false, "artifacts": [{"kind": "quark", '
+        f'"abi": "any", "platform": "any", "sha256": "{SHA}"}}]}}\n'
+        '{"name": "alpha", "version": "2.0.0", "kinds": ["quark", "lepton"], '
+        '"sclang": ">=3.13", "dependencies": {"beta-core": "^1.0.0"}, '
+        '"yanked": false, "artifacts": ['
+        f'{{"kind": "source", "abi": "any", "platform": "any", "sha256": "{SHA}"}}, '
+        f'{{"kind": "quark", "abi": "any", "platform": "any", "sha256": "{SHA}"}}, '
+        '{"kind": "lepton", "abi": "api3_0", "platform": "macos_arm64", '
         f'"sha256": "{SHA}"}}]}}\n'
     )
     assert commits(index.repo_path) == [
-        "publish alpha 1.1.0",
+        "publish alpha 2.0.0",
         "publish alpha 1.0.0",
         "update index config",
     ]
 
+    # the database reproduces the lines byte for byte
+    index.rebuild()
+    assert commits(index.repo_path)[0] == "publish alpha 2.0.0"
 
-def test_line_round_trips_cli_fixture():
-    # copied from ../magnet_cli/tests/fixtures/index/a/alpha.jsonl
+
+def test_line_round_trips_contract_example():
+    # "The contract (M3)" in implementation_plan.md
     line = (
-        '{"name": "alpha", "version": "1.1.0", "kind": "quark", '
-        '"dependencies": {"beta": "^1.0.0"}, "yanked": false, '
-        '"artifacts": [{"abi": "any", "platform": "any", '
-        '"sha256": "de5baa9f2f62954446e1c2ebd5fb5a4959de4f40214ab05c8ee73a274558ade6"}]}'
+        '{"name": "foo", "version": "2.0.0", "kinds": ["quark", "lepton"], '
+        '"sclang": ">=3.13", "dependencies": {"bar": "^1"}, "yanked": false, '
+        '"artifacts": [{"kind": "source", "abi": "any", "platform": "any", '
+        f'"sha256": "{SHA}"}}, {{"kind": "quark", "abi": "any", "platform": "any", '
+        f'"sha256": "{SHA}"}}, {{"kind": "lepton", "abi": "api3_0", '
+        f'"platform": "macos_arm64", "sha256": "{SHA}"}}]}}'
     )
     assert GitReleaseModel(**json.loads(line)).to_json() == line
 
@@ -125,15 +146,17 @@ def test_line_with_sclang():
     line = GitReleaseModel(
         name="alpha",
         version="1.0.0",
-        kind="quark",
+        kinds=["quark"],
         sclang=">=3.13",
         dependencies={},
-        artifacts=[GitArtifactModel(abi="any", platform="any", sha256=SHA)],
+        artifacts=[
+            GitArtifactModel(kind="quark", abi="any", platform="any", sha256=SHA)
+        ],
     )
     expected = (
-        '{"name": "alpha", "version": "1.0.0", "kind": "quark", "sclang": ">=3.13", '
-        '"dependencies": {}, "yanked": false, "artifacts": [{"abi": "any", '
-        f'"platform": "any", "sha256": "{SHA}"}}]}}'
+        '{"name": "alpha", "version": "1.0.0", "kinds": ["quark"], '
+        '"sclang": ">=3.13", "dependencies": {}, "yanked": false, "artifacts": '
+        f'[{{"kind": "quark", "abi": "any", "platform": "any", "sha256": "{SHA}"}}]}}'
     )
     assert line.to_json() == expected
     assert GitReleaseModel(**json.loads(expected)).to_json() == expected
@@ -179,16 +202,6 @@ def test_duplicate_version_is_rejected(index: GitDatabase):
 
 
 @pytest.mark.django_db
-def test_kind_is_fixed_by_first_release(index: GitDatabase):
-    first = published_release(kinds=["quark"], version="1.0.0")
-    index.commit_release(first)
-
-    second = published_release(project=first.project, kinds=["lepton"], version="2.0.0")
-    with pytest.raises(KindMismatch):
-        index.commit_release(second)
-
-
-@pytest.mark.django_db
 def test_yank_flips_only_that_release(index: GitDatabase):
     first = published_release(project__name="alpha", version="1.0.0")
     second = published_release(project=first.project, version="1.1.0")
@@ -221,20 +234,32 @@ def test_artifacts_are_appended(index: GitDatabase):
         release__version="0.3.0",
         kind="source",
     )
+    first = AssetFactory.create(
+        release=source.release, kind="lepton", abi="api3_0", platform="linux_x86_64"
+    )
     index.commit_release(source.release)
     binary = AssetFactory.create(
-        release=source.release, kind="lepton", abi="api3", platform="linux_x86_64"
+        release=source.release, kind="lepton", abi="api3_0", platform="macos_arm64"
     )
 
     binary.make_git_entry()
 
     line = json.loads(show(index.repo_path, "g/gamma.jsonl"))
-    assert [(a["abi"], a["platform"]) for a in line["artifacts"]] == [
-        ("source", "any"),
-        ("api3", "linux_x86_64"),
+    assert line["kinds"] == ["lepton"]
+    assert line["artifacts"] == [
+        {"kind": "source", "abi": "any", "platform": "any", "sha256": SHA},
+        {"kind": "lepton", "abi": "api3_0", "platform": "linux_x86_64", "sha256": SHA},
+        {"kind": "lepton", "abi": "api3_0", "platform": "macos_arm64", "sha256": SHA},
     ]
-    with pytest.raises(DuplicateIndexEntry):
+    with pytest.raises(DuplicateIndexEntry, match="already has a lepton artifact"):
         binary.make_git_entry()
+    with pytest.raises(DuplicateIndexEntry):
+        first.make_git_entry()
+
+    # the append is reproduced by a rebuild
+    log = commits(index.repo_path)
+    index.rebuild()
+    assert commits(index.repo_path) == log
 
 
 @pytest.mark.django_db
@@ -295,9 +320,11 @@ def test_concurrent_writes_all_end_up_in_the_index(index: GitDatabase):
         line = GitReleaseModel(
             name=name,
             version="1.0.0",
-            kind="quark",
+            kinds=["quark"],
             dependencies={},
-            artifacts=[GitArtifactModel(abi="any", platform="any", sha256=SHA)],
+            artifacts=[
+                GitArtifactModel(kind="quark", abi="any", platform="any", sha256=SHA)
+            ],
         )
         start.wait()
         try:

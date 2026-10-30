@@ -63,8 +63,10 @@ class GitIndexConfigModel(BaseModel):
 
 
 class GitArtifactModel(BaseModel):
-    """An artifact of a release, identified by its (abi, platform)."""
+    """An artifact of a release, identified by its (kind, abi, platform)."""
 
+    # `source` or one of the release's `kinds`
+    kind: str
     abi: str
     platform: str
     sha256: str
@@ -72,7 +74,8 @@ class GitArtifactModel(BaseModel):
     @classmethod
     def from_asset(cls, asset: Asset) -> "GitArtifactModel":
         return cls(
-            abi=asset.legacy_abi,
+            kind=asset.kind,
+            abi=asset.abi,
             platform=asset.platform,
             sha256=asset.sha256_checksum,
         )
@@ -89,7 +92,9 @@ class GitReleaseModel(BaseModel):
     # the normalized name
     name: str
     version: str
-    kind: str
+    # the artifact kinds the version declares, in the order of `RELEASE_KINDS`
+    # (versions of a package may differ)
+    kinds: list[str]
     # supported SuperCollider versions (a VersionReq), omitted from the line if unset
     sclang: str | None = None
     # normalized name of the dependency -> version requirement, or a git dependency
@@ -104,8 +109,7 @@ class GitReleaseModel(BaseModel):
         return cls(
             name=project.normalized_name,
             version=release.version,
-            # the index line has a single kind until S22
-            kind=release.kinds[0],
+            kinds=release.kinds,
             sclang=release.sclang or None,
             # sorted, so the line doesn't depend on the order of the database rows
             dependencies=release.index_dependencies(),
@@ -113,7 +117,7 @@ class GitReleaseModel(BaseModel):
             # upload order, which is the order artifacts got appended to the index
             artifacts=[
                 GitArtifactModel.from_asset(a)
-                for a in release.assets.order_by("created", "abi", "platform")
+                for a in release.assets.order_by("created", "kind", "abi", "platform")
             ],
         )
 

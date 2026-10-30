@@ -19,10 +19,6 @@ class IndexEntryMissing(IndexWriteError):
     pass
 
 
-class KindMismatch(IndexWriteError):
-    pass
-
-
 class ProjectIndexFile:
     """The package file of a project: one line per release, in publish order,
     at `<first char of the normalized name>/<normalized name>.jsonl`,
@@ -53,17 +49,13 @@ class ProjectIndexFile:
         self.path.write_text("".join(f"{release.to_json()}\n" for release in releases))
 
     def add_release(self, release: GitReleaseModel) -> None:
-        """Appends a release. Its version must be new and its kind the one of the
-        earlier releases, since the kind is fixed by the first release (D2.3)."""
+        """Appends a release, whose version must be new. Its kinds may differ from
+        the ones of the earlier releases."""
         releases = self.releases
         for existing in releases:
             if existing.version == release.version:
                 raise DuplicateIndexEntry(
                     f"{release.name} {release.version} is already in the index"
-                )
-            if existing.kind != release.kind:
-                raise KindMismatch(
-                    f"{release.name} is a {existing.kind}, can't add a {release.kind}"
                 )
         if not releases:
             logger.info(f"Create new package file {self.path.name}")
@@ -72,11 +64,12 @@ class ProjectIndexFile:
     def add_artifact(self, version: str, artifact: GitArtifactModel) -> None:
         releases = self.releases
         release = self._find(releases, version)
+        tags = (artifact.kind, artifact.abi, artifact.platform)
         for existing in release.artifacts:
-            if (existing.abi, existing.platform) == (artifact.abi, artifact.platform):
+            if (existing.kind, existing.abi, existing.platform) == tags:
                 raise DuplicateIndexEntry(
-                    f"{release.name} {version} already has an artifact "
-                    f"for {artifact.abi}/{artifact.platform}"
+                    f"{release.name} {version} already has a {artifact.kind} "
+                    f"artifact for {artifact.abi}/{artifact.platform}"
                 )
         release.artifacts.append(artifact)
         self.write(releases)
