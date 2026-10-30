@@ -356,7 +356,9 @@ def test_admin_reports_index_errors(admin_client, index: GitDatabase):
     )
 
     assert response.status_code == 200
-    assert "needs its quark artifact" in response.content.decode()
+    assert "needs its source artifact and its quark artifact" in (
+        response.content.decode()
+    )
 
 
 def mirrored(path: str) -> Path:

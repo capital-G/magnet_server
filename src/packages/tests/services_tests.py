@@ -70,30 +70,57 @@ def quark(content=b"Foo {}\n", **kwargs) -> bytes:
     )
 
 
-def lepton_source(**kwargs) -> bytes:
+def source(**kwargs) -> bytes:
+    """The source artifact (`from = "paths"`) of `manifest(**kwargs)`."""
     return tar_gz(
         ("Classes/Foo.sc", b"Foo {}\n"),
-        ("magnet.toml", manifest(kinds=("lepton",), **kwargs)),
+        ("magnet.toml", manifest(**kwargs)),
         ("src/Foo.cpp", b"// Foo\n"),
     )
 
 
-def lepton_binary(content=b"binary", **kwargs) -> bytes:
+def lepton_source(**kwargs) -> bytes:
+    return source(kinds=("lepton",), **kwargs)
+
+
+def lepton_binary(content=b"binary", abi="api3_0", kinds=("lepton",), **kwargs):
     return tar_gz(
-        ("magnet.toml", manifest(kinds=("lepton",), **kwargs)),
-        ("plugins/macos_arm64/api3_0/Foo.scx", content),
+        ("magnet.toml", manifest(kinds=kinds, **kwargs)),
+        (f"plugins/macos_arm64/{abi}/Foo.scx", content),
     )
 
 
-def upload(user, release, data: bytes, abi="any", platform="any", sha256=None):
+def upload(
+    user, release, data: bytes, kind="quark", abi="any", platform="any", sha256=None
+):
     return add_artifact(
         user,
         release,
+        kind=kind,
         abi=abi,
         platform=platform,
         file=ContentFile(data, name="upload.tar.gz"),
         sha256=sha256 or hashlib.sha256(data).hexdigest(),
     )
+
+
+def upload_lepton(user, release, abi="api3_0", **kwargs):
+    """A lepton artifact for `abi`/`macos_arm64`."""
+    return upload(
+        user,
+        release,
+        lepton_binary(abi=abi, **kwargs),
+        kind="lepton",
+        abi=abi,
+        platform="macos_arm64",
+    )
+
+
+def upload_quark(user, release, **kwargs):
+    """The source and the quark artifact of a quark version, which can be finalised
+    then; returns the quark artifact."""
+    upload(user, release, source(**kwargs), kind="source")
+    return upload(user, release, quark(**kwargs))
 
 
 @pytest.fixture
@@ -153,6 +180,14 @@ def test_quark_from_draft_to_final(index, user, alpha):
     # the CLI sends the normalized name, the manifest has the spelling
     assert project.name == "Foo_Bar"
 
+    with pytest.raises(
+        ValidationError,
+        match="foo-bar 1.0.0 needs its source artifact before it can be finalised",
+    ):
+        finalise(user, release)
+    source_asset, _ = upload(
+        user, release, source(dependencies='Alpha = "^1"'), kind="source"
+    )
     release = finalise(user, release)
 
     assert release.is_final
@@ -170,7 +205,13 @@ def test_quark_from_draft_to_final(index, user, alpha):
                     "abi": "any",
                     "platform": "any",
                     "sha256": asset.sha256_checksum,
-                }
+                },
+                {
+                    "kind": "source",
+                    "abi": "any",
+                    "platform": "any",
+                    "sha256": source_asset.sha256_checksum,
+                },
             ],
         }
     ]
@@ -180,6 +221,7 @@ def test_quark_from_draft_to_final(index, user, alpha):
 def test_every_step_can_be_repeated(index, user):
     data = quark()
     release, _ = create_draft(user, "foo-bar", "1.0.0")
+    upload(user, release, source(), kind="source")
     asset, _ = upload(user, release, data)
 
     assert create_draft(user, "Foo_Bar", "1.0.0") == (release, False)
@@ -190,19 +232,26 @@ def test_every_step_can_be_repeated(index, user):
     assert upload(user, release, data) == (asset, False)
 
     assert len(index_lines(index, "foo-bar")) == 1
-    assert Asset.objects.count() == 1
+    assert Asset.objects.count() == 2
 
 
 @pytest.mark.django_db
 def test_lepton_binary_before_its_source(index, user):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
-    upload(user, release, lepton_binary(), abi="api3_0", platform="macos_arm64")
+    upload(
+        user,
+        release,
+        lepton_binary(),
+        kind="lepton",
+        abi="api3_0",
+        platform="macos_arm64",
+    )
 
     with pytest.raises(ValidationError, match="needs its source artifact"):
         finalise(user, release)
     assert not release.is_final
 
-    source, _ = upload(user, release, lepton_source(), abi="source")
+    source, _ = upload(user, release, lepton_source(), kind="source")
     finalise(user, release)
 
     [line] = index_lines(index, "foo-bar")
@@ -216,18 +265,23 @@ def test_lepton_binary_before_its_source(index, user):
 @pytest.mark.django_db
 def test_append_to_a_final_version(index, user):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
-    upload(user, release, lepton_source(), abi="source")
+    upload(user, release, lepton_source(), kind="source")
+    upload_lepton(user, release)
     finalise(user, release)
 
-    binary, created = upload(
-        user, release, lepton_binary(), abi="api3_0", platform="macos_arm64"
-    )
+    # e.g. a binary for a newer plugin API, built later
+    binary, created = upload_lepton(user, release, abi="api4_0")
 
     assert created
     [line] = index_lines(index, "foo-bar")
+    assert [(a["kind"], a["abi"]) for a in line["artifacts"]] == [
+        ("source", "any"),
+        ("lepton", "api3_0"),
+        ("lepton", "api4_0"),
+    ]
     assert line["artifacts"][-1] == {
         "kind": "lepton",
-        "abi": "api3_0",
+        "abi": "api4_0",
         "platform": "macos_arm64",
         "sha256": binary.sha256_checksum,
     }
@@ -236,7 +290,8 @@ def test_append_to_a_final_version(index, user):
 @pytest.mark.django_db
 def test_failed_append_removes_the_artifact(index, user, monkeypatch):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
-    upload(user, release, lepton_source(), abi="source")
+    upload(user, release, lepton_source(), kind="source")
+    upload_lepton(user, release)
     finalise(user, release)
 
     def fail(self, asset):
@@ -244,10 +299,13 @@ def test_failed_append_removes_the_artifact(index, user, monkeypatch):
 
     monkeypatch.setattr(GitDatabase, "commit_asset", fail)
     with pytest.raises(RuntimeError):
-        upload(user, release, lepton_binary(), abi="api3_0", platform="macos_arm64")
+        upload_lepton(user, release, abi="api4_0")
 
-    assert release.assets.count() == 1
-    assert artifact_files() == ["dl/foo-bar/1.0.0/foo-bar-1.0.0-source-any-any.tar.gz"]
+    assert release.assets.count() == 2
+    assert artifact_files() == [
+        "dl/foo-bar/1.0.0/foo-bar-1.0.0-lepton-api3_0-macos_arm64.tar.gz",
+        "dl/foo-bar/1.0.0/foo-bar-1.0.0-source-any-any.tar.gz",
+    ]
 
 
 @pytest.mark.django_db
@@ -282,16 +340,18 @@ def test_artifacts_of_a_version_agree_on_the_index_fields(
     user, alpha, binary, differences
 ):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
-    upload(user, release, lepton_source(dependencies='alpha = "^1"'), abi="source")
+    upload(user, release, lepton_source(dependencies='alpha = "^1"'), kind="source")
 
     with pytest.raises(ValidationError, match=f"earlier artifacts in: {differences}"):
-        upload(user, release, binary, abi="api3_0", platform="macos_arm64")
+        upload(
+            user, release, binary, kind="lepton", abi="api3_0", platform="macos_arm64"
+        )
 
 
 @pytest.mark.django_db
 def test_metadata_and_crlf_dont_need_to_agree(user):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
-    upload(user, release, lepton_source(), abi="source")
+    upload(user, release, lepton_source(), kind="source")
 
     crlf = tar_gz(
         (
@@ -300,7 +360,7 @@ def test_metadata_and_crlf_dont_need_to_agree(user):
         ),
         ("plugins/macos_arm64/api3_0/Foo.scx", b"binary"),
     )
-    upload(user, release, crlf, abi="api3_0", platform="macos_arm64")
+    upload(user, release, crlf, kind="lepton", abi="api3_0", platform="macos_arm64")
 
     release.refresh_from_db()
     assert release.summary == "A test package"
@@ -326,36 +386,129 @@ def test_manifest_must_match_the_release(user, kwargs, error):
 
 
 @pytest.mark.django_db
-def test_quark_tags(user):
+@pytest.mark.parametrize(
+    "kind, abi, platform, error",
+    [
+        ("quark", "api3_0", "macos_arm64", "A quark artifact has the abi and platform"),
+        ("source", "any", "macos_arm64", "A source artifact has the abi and platform"),
+        ("lepton", "any", "any", "A lepton artifact needs an abi and a platform"),
+        ("gluon", "any", "any", "gluon is not an artifact kind"),
+    ],
+)
+def test_tags_per_kind(user, kind, abi, platform, error):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
-    # until the API has the kind (S25), other tags than any/any mean a lepton
+    with pytest.raises(ValidationError, match=error):
+        upload(user, release, quark(), kind=kind, abi=abi, platform=platform)
+    assert not Asset.objects.exists()
+
+
+@pytest.mark.django_db
+def test_undeclared_kind_is_refused(user):
+    release, _ = create_draft(user, "foo-bar", "1.0.0")
     with pytest.raises(ValidationError, match=r"There is no \[artifact.lepton\]"):
-        upload(user, release, quark(), abi="api3_0", platform="macos_arm64")
+        upload_lepton(user, release, kinds=("quark",))
+
+
+@pytest.mark.django_db
+def test_artifacts_of_a_version_agree_on_the_kinds(user):
+    release, _ = create_draft(user, "foo-bar", "1.0.0")
+    upload(user, release, source(kinds=("quark", "lepton")), kind="source")
+
+    with pytest.raises(ValidationError, match="earlier artifacts in: kinds"):
+        upload(user, release, quark(kinds=("quark",)))
+    upload(user, release, quark(kinds=("quark", "lepton")))
+
+
+@pytest.mark.django_db
+def test_quark_and_lepton_are_final_once_complete(index, user):
+    kinds = ("quark", "lepton")
+    release, _ = create_draft(user, "foo-bar", "1.0.0")
+
+    with pytest.raises(ValidationError, match="foo-bar 1.0.0 has no artifacts yet"):
+        finalise(user, release)
+    upload_lepton(user, release, kinds=kinds)
+    with pytest.raises(
+        ValidationError,
+        match="foo-bar 1.0.0 needs its source artifact and its quark artifact before",
+    ):
+        finalise(user, release)
+    upload(user, release, quark(kinds=kinds))
+    with pytest.raises(ValidationError, match="1.0.0 needs its source artifact before"):
+        finalise(user, release)
+    assert index_lines(index, "foo-bar") == []
+    upload(user, release, source(kinds=kinds), kind="source")
+
+    finalise(user, release)
+
+    [line] = index_lines(index, "foo-bar")
+    assert line["kinds"] == ["quark", "lepton"]
+    assert [(a["kind"], a["abi"], a["platform"]) for a in line["artifacts"]] == [
+        ("lepton", "api3_0", "macos_arm64"),
+        ("quark", "any", "any"),
+        ("source", "any", "any"),
+    ]
+
+
+@pytest.mark.django_db
+def test_quark_and_lepton_need_a_lepton_artifact(user):
+    kinds = ("quark", "lepton")
+    release, _ = create_draft(user, "foo-bar", "1.0.0")
+    upload(user, release, source(kinds=kinds), kind="source")
+
+    with pytest.raises(
+        ValidationError,
+        match="needs its quark artifact and a lepton artifact before it can be",
+    ):
+        finalise(user, release)
+    upload(user, release, quark(kinds=kinds))
+    with pytest.raises(ValidationError, match="needs a lepton artifact before"):
+        finalise(user, release)
+
+
+@pytest.mark.django_db
+def test_version_without_source_is_never_final(index, user):
+    release, _ = create_draft(user, "foo-bar", "1.0.0")
+    upload(user, release, quark())
+
+    for _attempt in range(2):
+        with pytest.raises(ValidationError, match="needs its source artifact before"):
+            finalise(user, release)
+    release.refresh_from_db()
+    assert not release.is_final
+    assert index_lines(index, "foo-bar") == []
+
+
+@pytest.mark.django_db
+def test_versions_of_a_package_with_different_kinds(index, user):
+    first, _ = create_draft(user, "foo-bar", "1.0.0")
+    upload_quark(user, first)
+    finalise(user, first)
+
+    second, _ = create_draft(user, "foo-bar", "2.0.0")
+    kinds = ("quark", "lepton")
+    upload(user, second, source(version="2.0.0", kinds=kinds), kind="source")
+    upload(user, second, quark(version="2.0.0", kinds=kinds))
+    upload_lepton(user, second, version="2.0.0", kinds=kinds)
+    finalise(user, second)
+
+    lines = index_lines(index, "foo-bar")
+    assert [(line["version"], line["kinds"]) for line in lines] == [
+        ("1.0.0", ["quark"]),
+        ("2.0.0", ["quark", "lepton"]),
+    ]
+    assert [len(line["artifacts"]) for line in lines] == [2, 3]
+    # and back to a quark only
+    third, _ = create_draft(user, "foo-bar", "3.0.0")
+    upload_quark(user, third, version="3.0.0")
+    finalise(user, third)
+    assert index_lines(index, "foo-bar")[-1]["kinds"] == ["quark"]
 
 
 @pytest.mark.django_db
 def test_source_artifact_has_platform_any(user):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
-    data = tar_gz(
-        ("Classes/Foo.sc", b""),
-        ("magnet.toml", manifest(kinds=("lepton",))),
-        ("plugins/Foo.scx", b""),
-    )
     with pytest.raises(ValidationError, match="platform 'any'"):
-        upload(user, release, data, abi="source", platform="macos_arm64")
-
-
-@pytest.mark.django_db
-def test_kinds_are_per_version(index, user):
-    release, _ = create_draft(user, "foo-bar", "1.0.0")
-    upload(user, release, quark())
-    finalise(user, release)
-
-    next_release, _ = create_draft(user, "foo-bar", "2.0.0")
-    upload(user, next_release, lepton_source(version="2.0.0"), abi="source")
-
-    next_release.refresh_from_db()
-    assert next_release.kinds == ["lepton"]
+        upload(user, release, source(), kind="source", platform="macos_arm64")
 
 
 @pytest.mark.django_db
@@ -434,7 +587,7 @@ def test_refused_dependencies(user, alpha, dependencies, error):
 @pytest.mark.django_db
 def test_accepted_dependencies(index, user, alpha):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
-    upload(user, release, quark(dependencies='ALPHA = { version = ">=1, <2" }'))
+    upload_quark(user, release, dependencies='ALPHA = { version = ">=1, <2" }')
     finalise(user, release)
 
     [line] = index_lines(index, "foo-bar")
@@ -450,7 +603,7 @@ ddwCommon = {{ legacy-quark = true, git = {{ url = "https://github.com/jamshark7
 Some_Quark = {{ legacy-quark = true, ignore-quark-deps = true, git = {{ url = "https://x.org/some.git", ref = "{SHA}" }} }}
 magnetProject = {{ git = {{ url = "ssh://git@x.org/magnet-project.git", ref = "{SHA}" }} }}
 """
-    upload(user, release, quark(dependencies=dependencies))
+    upload_quark(user, release, dependencies=dependencies)
     finalise(user, release)
 
     [line] = index_lines(index, "foo-bar")
@@ -487,12 +640,10 @@ magnetProject = {{ git = {{ url = "ssh://git@x.org/magnet-project.git", ref = "{
 @pytest.mark.django_db
 def test_project_page_shows_git_dependencies(client, index, user):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
-    upload(
+    upload_quark(
         user,
         release,
-        quark(
-            dependencies=f'ddwCommon = {{ legacy-quark = true, git = {{ url = "https://x.org/ddw.git", ref = "{SHA}" }} }}'
-        ),
+        dependencies=f'ddwCommon = {{ legacy-quark = true, git = {{ url = "https://x.org/ddw.git", ref = "{SHA}" }} }}',
     )
     finalise(user, release)
 
@@ -506,7 +657,7 @@ def test_project_page_shows_git_dependencies(client, index, user):
 def test_artifacts_of_a_version_agree_on_git_dependencies(user):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
     git = f'bar = {{ git = {{ url = "https://x.org/bar.git", ref = "{SHA}" }} }}'
-    upload(user, release, lepton_source(dependencies=git), abi="source")
+    upload(user, release, lepton_source(dependencies=git), kind="source")
 
     for other in [
         git.replace(SHA, "b" * 40),
@@ -518,6 +669,7 @@ def test_artifacts_of_a_version_agree_on_git_dependencies(user):
                 user,
                 release,
                 lepton_binary(dependencies=other),
+                kind="lepton",
                 abi="api3_0",
                 platform="macos_arm64",
             )
@@ -526,6 +678,7 @@ def test_artifacts_of_a_version_agree_on_git_dependencies(user):
         user,
         release,
         lepton_binary(dependencies=git.replace(SHA, SHA.upper())),
+        kind="lepton",
         abi="api3_0",
         platform="macos_arm64",
     )
@@ -553,7 +706,7 @@ def test_only_owners_and_maintainers_publish(index, user):
         delete_draft(other, release)
 
     release.project.maintainers.add(other)
-    upload(other, release, quark())
+    upload_quark(other, release)
     finalise(other, release)
     assert create_draft(other, "foo-bar", "1.0.1")[1]
 
@@ -586,7 +739,7 @@ def test_name_with_a_leading_digit(index, user):
     """The legacy quark 3Dj, once an admin assigned its reserved name."""
     ReservedName.objects.filter(normalized_name="3dj").update(claimed_by=user)
     release, _ = create_draft(user, "3dj", "1.0.0")
-    upload(user, release, quark(name="3Dj"))
+    upload_quark(user, release, name="3Dj")
     finalise(user, release)
     assert Project.objects.get(normalized_name="3dj").name == "3Dj"
     assert index_lines(index, "3dj")[0]["name"] == "3dj"
@@ -594,7 +747,7 @@ def test_name_with_a_leading_digit(index, user):
 
     # and others can depend on it
     other, _ = create_draft(user, "foo-bar", "1.0.0")
-    upload(user, other, quark(dependencies='"3Dj" = "^1"'))
+    upload_quark(user, other, dependencies='"3Dj" = "^1"')
     finalise(user, other)
     assert index_lines(index, "foo-bar")[0]["dependencies"] == {"3dj": "^1"}
 
@@ -627,7 +780,7 @@ def test_delete_draft(user, django_capture_on_commit_callbacks):
 @pytest.mark.django_db
 def test_final_version_cant_be_deleted(index, user):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
-    upload(user, release, quark())
+    upload_quark(user, release)
     finalise(user, release)
 
     with pytest.raises(Conflict, match="yank it instead"):

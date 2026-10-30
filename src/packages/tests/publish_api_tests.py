@@ -13,7 +13,7 @@ from magnet.exceptions import PayloadTooLarge
 from packages.api import LengthRequired, read_upload
 from packages.models import DeletedRelease, Release
 from packages.tests.factories import ReleaseFactory
-from packages.tests.services_tests import lepton_binary, lepton_source, quark
+from packages.tests.services_tests import lepton_binary, lepton_source, quark, source
 from users.oauth import create_access_token
 from users.tests.factories import UserFactory
 
@@ -114,10 +114,11 @@ def test_publish_a_quark(api):
         {"abi": "any", "platform": "any", "sha256": sha256(data)}
     ]
 
+    assert api.upload(source(), abi="source").status_code == 201
     response = api.finalise()
     assert response.status_code == 200
     assert response.json()["state"] == "final"
-    asset = Release.objects.get().assets.get()
+    asset = Release.objects.get().assets.get(kind="quark")
     assert asset.uploaded_via == "magnet/test"
 
     # every step again, like a second `magnet publish`
@@ -187,6 +188,7 @@ def test_others_cant_publish(client, api):
         "detail": "You are not an owner or maintainer of foo-bar."
     }
 
+    api.upload(source(), abi="source")
     api.finalise()
     assert other.get().status_code == 200
     assert other.upload(quark(), abi="source").status_code == 403
@@ -344,6 +346,7 @@ def test_delete(api, django_capture_on_commit_callbacks):
 
     api.draft()
     api.upload(quark())
+    api.upload(source(), abi="source")
     api.finalise()
     response = api.delete()
     assert response.status_code == 409

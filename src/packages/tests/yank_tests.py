@@ -9,7 +9,7 @@ from git_db.db import GitDatabase, get_git_database
 from git_db.tests.git_db_tests import commits, show
 from packages.models import Release
 from packages.services import create_draft, finalise, unyank, yank
-from packages.tests.services_tests import quark, upload
+from packages.tests.services_tests import upload_quark
 from users.tests.factories import UserFactory
 
 
@@ -25,7 +25,7 @@ def release(index) -> Release:
     owner = UserFactory.create()
     for version in ["1.0.0", "1.1.0"]:
         draft, _ = create_draft(owner, "foo-bar", version)
-        upload(owner, draft, quark(version=version))
+        upload_quark(owner, draft, version=version)
         finalise(owner, draft)
     return Release.objects.get(version="1.0.0")
 
@@ -43,9 +43,9 @@ def test_yank_and_unyank(index, release):
     release.refresh_from_db()
     assert (release.yanked, release.yanked_reason) == (True, "broken on Windows")
     assert yanked_in_index(index) == [True, False]
-    # the artifact stays downloadable
-    asset = release.assets.get()
-    assert asset.file.storage.exists(asset.file.name)
+    # the artifacts stay downloadable
+    for asset in release.assets.all():
+        assert asset.file.storage.exists(asset.file.name)
 
     unyank(owner, release)
     release.refresh_from_db()

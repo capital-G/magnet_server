@@ -32,7 +32,7 @@ from rest_framework.views import APIView
 from magnet.exceptions import PayloadTooLarge
 from packages.models import Project, Release
 from packages.services import add_artifact, create_draft, delete_draft, finalise
-from packages.validators import normalize_name
+from packages.validators import ANY, SOURCE_KIND, normalize_name
 
 SHA256_HEADER = "X-Magnet-Sha256"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -116,6 +116,21 @@ def get_release(request, name: str, version: str) -> Release:
     return release
 
 
+# the abi of the source artifact before artifact kinds
+LEGACY_SOURCE_ABI = "source"
+
+
+def legacy_artifact_kind(abi: str, platform: str) -> tuple[str, str]:
+    """The kind and abi of an artifact uploaded by abi and platform only, as long as
+    the route has no artifact kind (S25): the abi `source` is the source artifact
+    (`any`/`any`), `any`/`any` the quark artifact, everything else a lepton artifact."""
+    if abi == LEGACY_SOURCE_ABI:
+        return SOURCE_KIND, ANY
+    if (abi, platform) == (ANY, ANY):
+        return "quark", abi
+    return "lepton", abi
+
+
 def version_response(release: Release, status_code=status.HTTP_200_OK) -> Response:
     return Response(VersionSerializer(release).data, status=status_code)
 
@@ -191,10 +206,12 @@ class ArtifactView(PublishApiView):
                 f"{SHA256_HEADER} must be the sha256 of the upload "
                 "as 64 lowercase hex characters."
             )
+        kind, abi = legacy_artifact_kind(abi, platform)
         with read_upload(request) as file:
             asset, created = add_artifact(
                 request.user,
                 release,
+                kind=kind,
                 abi=abi,
                 platform=platform,
                 file=file,
@@ -212,9 +229,10 @@ class FinaliseView(PublishApiView):
         request=None,
         responses=VersionSerializer,
         summary="Finalise a draft",
-        description="Writes the version into the index. It needs its `any`/`any` "
-        "artifact (quarks) or `source`/`any` artifact (leptons, gluons). A final "
-        "version is returned as is.",
+        description="Writes the version into the index. It needs its `source` "
+        "artifact, its `quark` artifact if it declares `quark` and at least one "
+        "`lepton` artifact if it declares `lepton`, otherwise the `400` names "
+        "what's missing. A final version is returned as is.",
     )
     def post(self, request, name: str, version: str):
         return version_response(

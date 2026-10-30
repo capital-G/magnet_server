@@ -18,11 +18,12 @@ from packages.deletion import (
 )
 from packages.models import Asset, DeletedRelease, Project, Release, ReservedName
 from packages.services import create_draft, finalise
-from packages.tests.services_tests import quark, upload
+from packages.tests.services_tests import upload_quark
 from packages.views import serve_artifact
 from users.tests.factories import UserFactory
 
 ARTIFACT = "dl/foo-bar/1.0.0/foo-bar-1.0.0-quark-any-any.tar.gz"
+SOURCE = "dl/foo-bar/1.0.0/foo-bar-1.0.0-source-any-any.tar.gz"
 
 
 def artifact_files() -> list[str]:
@@ -44,7 +45,7 @@ def owner():
 
 def publish(owner, version, name="foo-bar", final=True, **kwargs) -> Release:
     release, _ = create_draft(owner, name, version)
-    upload(owner, release, quark(name=name, version=version, **kwargs))
+    upload_quark(owner, release, name=name, version=version, **kwargs)
     return finalise(owner, release) if final else release
 
 
@@ -127,7 +128,8 @@ def test_failed_index_write_changes_nothing(
 
     assert Release.objects.exists() and Asset.objects.exists()
     assert not DeletedRelease.objects.exists()
-    assert artifact_files() == [ARTIFACT] and not gone_marker(ARTIFACT).exists()
+    assert artifact_files() == [ARTIFACT, SOURCE]
+    assert not gone_marker(ARTIFACT).exists()
     assert index_versions(index) == ["1.0.0"]
 
 

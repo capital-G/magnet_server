@@ -59,6 +59,16 @@ class IndexFields:
     dependencies: dict[str, Any]
 
 
+def join_and(items: list[str]) -> str:
+    """`a`, `a and b`, `a, b and c`"""
+    if len(items) < 2:
+        return "".join(items)
+    return _("%(items)s and %(last)s") % {
+        "items": ", ".join(items[:-1]),
+        "last": items[-1],
+    }
+
+
 def label(release: Release) -> str:
     """A release in messages for the CLI, which knows packages by their normalized
     name (`str(release)` has the display name)."""
@@ -318,22 +328,6 @@ def index_fields(manifest: dict[str, Any], release: Release) -> IndexFields:
     )
 
 
-# the abi of the source artifact before artifact kinds
-LEGACY_SOURCE_ABI = "source"
-
-
-def legacy_artifact_kind(abi: str, platform: str) -> tuple[str, str]:
-    """The kind and abi of an artifact uploaded by abi and platform only, as long as
-    the publish API has no artifact kind (S25): the abi `source` is the source
-    artifact (`any`/`any`), `any`/`any` the quark artifact, everything else a lepton
-    artifact."""
-    if abi == LEGACY_SOURCE_ABI:
-        return SOURCE_KIND, ANY
-    if (abi, platform) == (ANY, ANY):
-        return "quark", abi
-    return "lepton", abi
-
-
 def stored_index_fields(release: Release) -> IndexFields:
     return IndexFields(
         kinds=release.kinds,
@@ -420,30 +414,31 @@ def add_artifact(
     user: User,
     release: Release,
     *,
+    kind: str,
     abi: str,
     platform: str,
     file: File,
     sha256: str,
     uploaded_via: str = "",
 ) -> tuple[Asset, bool]:
-    """Adds an artifact to a draft or a final version (an append, which reaches the
-    index right away), and whether it was added: an identical artifact is returned
-    as is. `sha256` is what the client sent, the server computes its own.
+    """Adds an artifact of `kind` to a draft or a final version (an append, which
+    reaches the index right away), and whether it was added: an identical artifact
+    is returned as is. `sha256` is what the client sent, the server computes its own.
 
-    The archive is inspected (`inspect_artifact`), and its manifest must match the
-    release. The first artifact of a version stores the manifest's kinds, `sclang`,
-    dependencies and metadata, every later one must agree on the index fields."""
+    The archive is inspected (`inspect_artifact`), so its manifest must declare
+    `kind` (every version has a `source`) and match the release. The first artifact
+    of a version stores the manifest's kinds, `sclang`, dependencies and metadata,
+    every later one must agree on the index fields."""
     ensure_can_publish(user, release.project)
     validate_artifact_tag(abi)
     validate_artifact_tag(platform)
+    validate_artifact_kind_tags(kind, abi, platform)
     actual = file_sha256(file)
     if actual != sha256:
         raise ValidationError(
             _("The sha256 of the upload is %(actual)s, not %(sent)s.")
             % {"actual": actual, "sent": sha256}
         )
-    kind, abi = legacy_artifact_kind(abi, platform)
-    validate_artifact_kind_tags(kind, abi, platform)
     if existing := _existing_asset(release, kind, abi, platform, actual):
         return existing, False
 
@@ -499,11 +494,21 @@ def add_artifact(
     return asset, True
 
 
-def required_artifact(kinds: list[str]) -> str:
-    """The kind of the artifact a version needs before it can be finalised: as long
-    as the archive inspection knows only one kind per version (S23), a quark has no
-    source artifact."""
-    return "quark" if "quark" in kinds else SOURCE_KIND
+def missing_artifacts(release: Release) -> list[str]:
+    """What a version still needs before it can be finalised: its source artifact
+    (always), the quark artifact if it declares `quark`, and at least one lepton
+    artifact if it declares `lepton`. More lepton artifacts can be appended to the
+    final version. "At least one binary" is a policy, which gets relaxed once the
+    client can build leptons from their source."""
+    uploaded = set(release.assets.values_list("kind", flat=True))
+    missing = []
+    if SOURCE_KIND not in uploaded:
+        missing.append(_("its source artifact"))
+    if "quark" in release.kinds and "quark" not in uploaded:
+        missing.append(_("its quark artifact"))
+    if "lepton" in release.kinds and "lepton" not in uploaded:
+        missing.append(_("a lepton artifact"))
+    return missing
 
 
 def finalise(user: User, release: Release) -> Release:
@@ -512,9 +517,11 @@ def finalise(user: User, release: Release) -> Release:
     return finalise_release(release)
 
 
-def finalise_release(release: Release) -> Release:
-    """Writes the draft into the index, which publishes it. A final version is
-    returned as is."""
+def finalise_release(release: Release, *, complete: bool = True) -> Release:
+    """Writes the draft into the index, which publishes it, once it has the artifacts
+    of `missing_artifacts`. The management commands publish without that check
+    (`complete=False`), e.g. the CLI's fixtures, whose quark versions have no source.
+    A final version is returned as is."""
     with transaction.atomic():
         release = (
             Release.objects.select_for_update()
@@ -527,11 +534,10 @@ def finalise_release(release: Release) -> Release:
             raise ValidationError(
                 _("%(release)s has no artifacts yet.") % {"release": label(release)}
             )
-        kind = required_artifact(release.kinds)
-        if not release.assets.filter(kind=kind).exists():
+        if complete and (missing := missing_artifacts(release)):
             raise ValidationError(
-                _("%(release)s needs its %(kind)s artifact before it can be finalised.")
-                % {"release": label(release), "kind": kind}
+                _("%(release)s needs %(missing)s before it can be finalised.")
+                % {"release": label(release), "missing": join_and(missing)}
             )
         get_git_database().commit_release(release)
     logger.info(f"Finalised {release}")
@@ -610,7 +616,8 @@ def publish_release(
     """Publishes a version with its artifacts in one go (draft, artifacts,
     finalise), for the management commands. Unlike `add_artifact`, the kinds and
     dependencies are passed in and the artifacts only get the M1 checks, since the
-    M1 fixture tarballs have no `magnet.toml`.
+    M1 fixture tarballs have no `magnet.toml`, and the version needs no particular
+    artifacts (`missing_artifacts`), only at least one.
 
     Dependencies map a package name (any spelling) to a version requirement, which
     must refer to an existing project, or to a git dependency in the form of the
@@ -665,7 +672,8 @@ def publish_release(
                     uploaded_via=uploaded_via,
                 )
             )
-        finalise(owner, release)
+        # the owner may publish (`create_draft`); without the finalise rules
+        finalise_release(release, complete=False)
     except BaseException:
         for asset in assets:
             asset.file.delete(save=False)
