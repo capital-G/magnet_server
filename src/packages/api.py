@@ -70,7 +70,7 @@ class HasPublishScope(BasePermission):
 
 
 class ArtifactSerializer(serializers.Serializer):
-    abi = serializers.CharField()
+    abi = serializers.CharField(source="legacy_abi")
     platform = serializers.CharField()
     sha256 = serializers.CharField(source="sha256_checksum")
 

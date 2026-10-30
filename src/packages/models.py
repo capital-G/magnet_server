@@ -11,21 +11,22 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from packages.validators import (
+    ANY,
+    SOURCE_KIND,
     normalize_name,
     parse_version,
     validate_artifact_archive,
+    validate_artifact_kind_tags,
     validate_artifact_tag,
     validate_git_ref,
     validate_git_url,
     validate_name,
+    validate_release_kinds,
     validate_version,
     validate_version_req,
 )
 
 logger = logging.getLogger(__name__)
-
-# abi and platform of artifacts which run everywhere, e.g. the sources of a quark
-ANY = "any"
 
 
 def get_sentinel_user():
@@ -51,7 +52,7 @@ def asset_upload_to(asset: "Asset", filename: str) -> str:
     return artifact_path(
         name=release.project.normalized_name,
         version=release.version,
-        kind=release.artifact_kind,
+        kind=asset.kind,
         abi=asset.abi,
         platform=asset.platform,
     )
@@ -67,14 +68,7 @@ class ProjectQuerySet(models.QuerySet):
 class Project(models.Model):
     """A basic model which acts as a housing for releases.
     This is more like an organization as all meta-data for the
-    project are attached to the release."""
-
-    class Kind(models.TextChoices):
-        """See D1.4. The kind of a project can't change after its first release."""
-
-        quark = "quark", _("Quark")
-        lepton = "lepton", _("Lepton")
-        gluon = "gluon", _("Gluon")
+    project are attached to the release. The kinds are per release, too."""
 
     uuid = models.UUIDField(
         editable=False,
@@ -108,14 +102,6 @@ class Project(models.Model):
             "Lowercase name with '_' replaced by '-', e.g. ddw-common. "
             "Used by the index and download URLs."
         ),
-    )
-
-    kind = models.CharField(
-        max_length=16,
-        choices=Kind.choices,
-        blank=True,
-        default="",
-        help_text=_("Set by the first final release, empty until then"),
     )
 
     slug = models.SlugField(
@@ -339,12 +325,13 @@ class Release(models.Model):
         validators=[validate_version],
     )
 
-    # from the manifest of the first artifact, empty for a draft without artifacts
-    kind = models.CharField(
-        max_length=16,
-        choices=Project.Kind.choices,
+    # from the manifest of the first artifact, empty for a draft without artifacts.
+    # A list, so it's filtered with `kinds__icontains` (sqlite has no JSON contains).
+    kinds = models.JSONField(
         blank=True,
-        default="",
+        default=list,
+        validators=[validate_release_kinds],
+        help_text=_("The kinds the version declares, in the order quark, lepton"),
     )
 
     sclang = models.CharField(
@@ -466,13 +453,6 @@ class Release(models.Model):
     def is_final(self) -> bool:
         return self.published_at is not None
 
-    @property
-    def artifact_kind(self) -> str:
-        """The kind, which is set before the release gets artifacts."""
-        if not self.kind:
-            raise ValueError(f"{self} has no kind yet")
-        return self.kind
-
     def index_dependencies(self) -> dict[str, Any]:
         """The `dependencies` of the version's index line: normalized name ->
         version requirement, or the git dependency's entry, sorted."""
@@ -503,9 +483,15 @@ class Release(models.Model):
 
 
 class Asset(models.Model):
-    """The artifact of a release for one (abi, platform), see D1.5.
-    Quarks have a single artifact for `any`/`any`. Leptons have one per
-    (abi, platform) plus their sources as `source`/`any`."""
+    """An artifact of a release for one (kind, abi, platform), see D1.5.
+    Every release has a `source` artifact, and one per kind it declares: a single
+    `quark` artifact, and a `lepton` artifact per (abi, platform). The source and
+    quark artifacts have the abi and platform `any`."""
+
+    class Kind(models.TextChoices):
+        source = SOURCE_KIND, _("Source")
+        quark = "quark", _("Quark")
+        lepton = "lepton", _("Lepton")
 
     uuid = models.UUIDField(
         editable=False,
@@ -568,25 +554,32 @@ class Asset(models.Model):
         help_text=_("The release this extension belongs to"),
     )
 
+    kind = models.CharField(
+        max_length=16,
+        choices=Kind.choices,
+        help_text=_("The kind of the artifact, a kind of its release or 'source'"),
+    )
+
     # The vocabulary of abi and platform for leptons is not decided yet (D3.2),
-    # e.g. the server plugin API version (`api3`) and `linux_x86_64`.
+    # e.g. the server plugin API version (`api3_0`) and `linux_x86_64`.
     abi = models.CharField(
         max_length=64,
         default=ANY,
         validators=[validate_artifact_tag],
-        help_text=_("ABI the artifact targets, 'any' for quarks"),
+        help_text=_("ABI the artifact targets, 'any' for sources and quarks"),
     )
 
     platform = models.CharField(
         max_length=64,
         default=ANY,
         validators=[validate_artifact_tag],
-        help_text=_("Platform the artifact targets, 'any' for quarks"),
+        help_text=_("Platform the artifact targets, 'any' for sources and quarks"),
     )
 
     class Meta:
         ordering = (
             "release",
+            "kind",
             "abi",
             "platform",
         )
@@ -594,8 +587,8 @@ class Asset(models.Model):
         verbose_name_plural = _("Assets")
         constraints = [
             models.UniqueConstraint(
-                name="unique_release_abi_platform",
-                fields=("release", "abi", "platform"),
+                name="unique_release_kind_abi_platform",
+                fields=("release", "kind", "abi", "platform"),
             ),
         ]
 
@@ -612,13 +605,19 @@ class Asset(models.Model):
         super().save(*args, **kwargs)
 
     def clean(self):
+        if self.kind:
+            validate_artifact_kind_tags(self.kind, self.abi, self.platform)
         if (
             self.release_id
-            and self.release.kind == Project.Kind.quark
-            and (self.abi, self.platform) != (ANY, ANY)
+            and self.kind
+            and self.kind != SOURCE_KIND
+            and self.kind not in self.release.kinds
         ):
             raise ValidationError(
-                _("A quark has a single artifact with abi and platform 'any'.")
+                {
+                    "kind": _("%(release)s doesn't declare the kind %(kind)s.")
+                    % {"release": self.release, "kind": self.kind}
+                }
             )
         # a new upload must not replace an artifact, e.g. of a deleted asset (D2.3)
         if self.release_id and self.file and not self.file._committed:
@@ -640,10 +639,16 @@ class Asset(models.Model):
         return artifact_filename(
             name=self.release.project.normalized_name,
             version=self.release.version,
-            kind=self.release.artifact_kind,
+            kind=self.kind,
             abi=self.abi,
             platform=self.platform,
         ).removesuffix(".tar.gz")
+
+    @property
+    def legacy_abi(self) -> str:
+        """The abi of the artifact in the index line and the publish API as long as
+        they have no artifact kind (S22, S25): the source's abi was `source`."""
+        return SOURCE_KIND if self.kind == SOURCE_KIND else self.abi
 
     def make_git_entry(self):
         from git_db.db import get_git_database

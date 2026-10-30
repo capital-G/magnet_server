@@ -87,8 +87,8 @@ def test_new_projects_check_reservations():
     ReservedName.objects.filter(normalized_name="wslib").update(claimed_by=claimant)
 
     with pytest.raises(ValidationError, match="is reserved"):
-        get_or_create_project(name="wslib", kind="quark", owner=UserFactory.create())
-    project = get_or_create_project(name="wslib", kind="quark", owner=claimant)
+        get_or_create_project(name="wslib", owner=UserFactory.create())
+    project = get_or_create_project(name="wslib", owner=claimant)
     assert project.owner == claimant
 
 
@@ -97,10 +97,7 @@ def test_existing_projects_with_a_reserved_name_keep_working():
     project = ProjectFactory.create(name="foolib")
     ReservedName.objects.create(normalized_name="foolib", reason="legacy_quark")
 
-    assert (
-        get_or_create_project(name="FooLib", kind="quark", owner=project.owner)
-        == project
-    )
+    assert get_or_create_project(name="FooLib", owner=project.owner) == project
     assert Project.objects.count() == 1
 
 

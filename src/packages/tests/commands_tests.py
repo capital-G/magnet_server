@@ -81,7 +81,10 @@ def test_publish_command(tmp_path: Path, index: GitDatabase):
     [
         (["--dependency", "unknown=^1"], "not a known package"),
         (["--dependency", "alpha=~>1"], "version requirement"),
-        (["--abi", "api3", "--platform", "linux_x86_64"], "single artifact"),
+        (
+            ["--abi", "api3", "--platform", "linux_x86_64"],
+            "has the abi and platform 'any'",
+        ),
     ],
 )
 def test_publish_command_rolls_back_invalid_releases(tmp_path: Path, args, error):

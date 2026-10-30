@@ -72,7 +72,7 @@ class GitArtifactModel(BaseModel):
     @classmethod
     def from_asset(cls, asset: Asset) -> "GitArtifactModel":
         return cls(
-            abi=asset.abi,
+            abi=asset.legacy_abi,
             platform=asset.platform,
             sha256=asset.sha256_checksum,
         )
@@ -104,7 +104,8 @@ class GitReleaseModel(BaseModel):
         return cls(
             name=project.normalized_name,
             version=release.version,
-            kind=release.artifact_kind,
+            # the index line has a single kind until S22
+            kind=release.kinds[0],
             sclang=release.sclang or None,
             # sorted, so the line doesn't depend on the order of the database rows
             dependencies=release.index_dependencies(),

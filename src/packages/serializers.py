@@ -24,6 +24,7 @@ class AssetSerializer(serializers.ModelSerializer):
             "uploader",
             "uploaded_via",
             "comment",
+            "kind",
             "abi",
             "platform",
         ]
@@ -37,6 +38,7 @@ class ProjectSerializer(serializers.ModelSerializer):
     home_page_url = SerializerMethodField()
     bug_tracker_url = SerializerMethodField()
     license = SerializerMethodField()
+    kinds = SerializerMethodField()
 
     # project description are stored in releases, so we have take these attributes
     # from the latest release (releases are ordered newest first; the views
@@ -64,6 +66,9 @@ class ProjectSerializer(serializers.ModelSerializer):
     def get_license(self, project: Project) -> str | None:
         return self.get_release_attribute(project, attribute="license")
 
+    def get_kinds(self, project: Project) -> list[str]:
+        return self.get_release_attribute(project, attribute="kinds") or []
+
     class Meta:
         model = Project
         fields = [
@@ -79,7 +84,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             "name",
             "normalized_name",
             "slug",
-            "kind",
+            "kinds",
         ]
 
 
@@ -93,6 +98,7 @@ class ReleaseSerializer(serializers.ModelSerializer):
             "uuid",
             "created",
             "release_note",
+            "kinds",
             "published_at",
             "yanked",
             "assets",
@@ -117,6 +123,6 @@ class ProjectDetailSerializer(ProjectSerializer):
             "name",
             "normalized_name",
             "slug",
-            "kind",
+            "kinds",
             "releases",
         ]

@@ -2,12 +2,13 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
-from packages.models import ANY, Asset, Dependency, Project
-from packages.tests.factories import ProjectFactory, ReleaseFactory
+from packages.models import ANY, Asset, Dependency, Release
+from packages.tests.factories import AssetFactory, ProjectFactory, ReleaseFactory
 from packages.validators import (
     normalize_name,
     validate_artifact_tag,
     validate_name,
+    validate_release_kinds,
     validate_version,
     validate_version_req,
 )
@@ -173,26 +174,133 @@ def test_release_with_invalid_version_is_not_saved():
         ReleaseFactory(version="1.2.3-beta")
 
 
-@pytest.mark.django_db
-def test_quark_asset_must_be_any_any():
-    release = ReleaseFactory(project__kind=Project.Kind.quark)
+@pytest.mark.parametrize("kinds", [[], ["quark"], ["lepton"], ["quark", "lepton"]])
+def test_valid_release_kinds(kinds):
+    validate_release_kinds(kinds)
 
-    Asset(release=release, abi=ANY, platform=ANY).clean()
+
+@pytest.mark.parametrize(
+    "kinds",
+    [
+        ["lepton", "quark"],
+        ["quark", "quark"],
+        ["source"],
+        ["gluon"],
+        ["Quark"],
+        "quark",
+        {"quark": True},
+    ],
+)
+def test_invalid_release_kinds(kinds):
     with pytest.raises(ValidationError):
-        Asset(release=release, abi="api3", platform="linux_x86_64").clean()
+        validate_release_kinds(kinds)
 
 
 @pytest.mark.django_db
-def test_lepton_asset_may_target_a_platform():
-    release = ReleaseFactory(project__kind=Project.Kind.lepton)
-    Asset(release=release, abi="api3", platform="linux_x86_64").clean()
+def test_release_kinds_are_validated():
+    with pytest.raises(ValidationError) as e:
+        ReleaseFactory.build(kinds=["lepton", "quark"]).full_clean(
+            exclude=["project", "owner"]
+        )
+    assert "kinds" in e.value.message_dict
+
+
+@pytest.mark.parametrize(
+    "kind, abi, platform",
+    [
+        ("source", ANY, ANY),
+        ("quark", ANY, ANY),
+        ("lepton", "api3_0", "linux_x86_64"),
+    ],
+)
+@pytest.mark.django_db
+def test_valid_tags_per_kind(kind, abi, platform):
+    release = ReleaseFactory(kinds=["quark", "lepton"])
+    Asset(release=release, kind=kind, abi=abi, platform=platform).clean()
+
+
+@pytest.mark.parametrize(
+    "kind, abi, platform",
+    [
+        ("source", "api3_0", ANY),
+        ("source", ANY, "linux_x86_64"),
+        ("quark", "api3_0", "linux_x86_64"),
+        ("quark", ANY, "linux_x86_64"),
+        ("lepton", ANY, ANY),
+        ("lepton", ANY, "linux_x86_64"),
+        ("lepton", "api3_0", ANY),
+    ],
+)
+@pytest.mark.django_db
+def test_invalid_tags_per_kind(kind, abi, platform):
+    release = ReleaseFactory(kinds=["quark", "lepton"])
+    with pytest.raises(ValidationError):
+        Asset(release=release, kind=kind, abi=abi, platform=platform).clean()
 
 
 @pytest.mark.django_db
-def test_asset_identifier():
-    release = ReleaseFactory(project__name="DDW_Common", version="0.1.0")
-    asset = Asset(release=release, abi=ANY, platform=ANY)
-    assert asset.identifier == "ddw-common-0.1.0-quark-any-any"
+def test_asset_kind_must_be_declared_by_its_release():
+    release = ReleaseFactory(kinds=["quark"])
+
+    Asset(release=release, kind="source", abi=ANY, platform=ANY).clean()
+    with pytest.raises(ValidationError) as e:
+        Asset(
+            release=release, kind="lepton", abi="api3_0", platform="linux_x86_64"
+        ).clean()
+    assert "doesn't declare the kind lepton" in e.value.message_dict["kind"][0]
+
+
+@pytest.mark.django_db
+def test_asset_kind_is_validated():
+    asset = AssetFactory.build(release=ReleaseFactory(), kind="gluon")
+    with pytest.raises(ValidationError) as e:
+        asset.full_clean()
+    assert "kind" in e.value.message_dict
+
+
+@pytest.mark.django_db
+def test_assets_are_unique_per_kind_abi_and_platform():
+    release = ReleaseFactory(kinds=["quark", "lepton"])
+    AssetFactory(release=release, kind="source")
+    # the same abi and platform for another kind
+    AssetFactory(release=release, kind="quark")
+    AssetFactory(release=release, kind="lepton", abi="api3_0", platform="macos_arm64")
+    linux = AssetFactory(
+        release=release, kind="lepton", abi="api3_0", platform="linux_x86_64"
+    )
+
+    # (the storage refuses a second file at the same path before the database does)
+    with pytest.raises(IntegrityError):
+        Asset.objects.filter(pk=linux.pk).update(platform="macos_arm64")
+
+
+@pytest.mark.django_db
+def test_asset_identifier_and_path_have_the_assets_kind():
+    release = ReleaseFactory(
+        project__name="DDW_Common", version="0.1.0", kinds=["lepton"]
+    )
+    source = AssetFactory(release=release, kind="source")
+    binary = AssetFactory(
+        release=release, kind="lepton", abi="api3_0", platform="macos_arm64"
+    )
+
+    assert source.identifier == "ddw-common-0.1.0-source-any-any"
+    assert (
+        source.file.name == "dl/ddw-common/0.1.0/ddw-common-0.1.0-source-any-any.tar.gz"
+    )
+    assert binary.identifier == "ddw-common-0.1.0-lepton-api3_0-macos_arm64"
+
+
+@pytest.mark.django_db
+def test_versions_of_a_package_may_have_different_kinds():
+    project = ProjectFactory()
+    ReleaseFactory(project=project, version="1.0.0", kinds=["quark"])
+    ReleaseFactory(project=project, version="2.0.0", kinds=["quark", "lepton"])
+
+    assert [(r.version, r.kinds) for r in Release.objects.filter(project=project)] == [
+        ("2.0.0", ["quark", "lepton"]),
+        ("1.0.0", ["quark"]),
+    ]
 
 
 @pytest.mark.django_db

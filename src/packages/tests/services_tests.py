@@ -127,7 +127,7 @@ def test_quark_from_draft_to_final(index, user, alpha):
     release, created = create_draft(user, "foo-bar", "1.0.0")
     assert created and not release.is_final
     project = release.project
-    assert (project.name, project.owner, project.kind) == ("foo-bar", user, "")
+    assert (project.name, project.owner) == ("foo-bar", user)
 
     asset, created = upload(user, release, data)
     assert created
@@ -137,7 +137,7 @@ def test_quark_from_draft_to_final(index, user, alpha):
 
     release.refresh_from_db()
     project.refresh_from_db()
-    assert (release.kind, release.sclang) == ("quark", ">=3.13")
+    assert (release.kinds, release.sclang) == (["quark"], ">=3.13")
     assert (release.summary, release.license, release.repository_url) == (
         "A test package",
         "MIT",
@@ -145,12 +145,11 @@ def test_quark_from_draft_to_final(index, user, alpha):
     )
     assert release.readme == "# Foo\n"
     # the CLI sends the normalized name, the manifest has the spelling
-    assert (project.name, project.kind) == ("Foo_Bar", "")
+    assert project.name == "Foo_Bar"
 
     release = finalise(user, release)
 
-    project.refresh_from_db()
-    assert release.is_final and project.kind == "quark"
+    assert release.is_final
     assert index_lines(index, "foo-bar") == [
         {
             "name": "foo-bar",
@@ -188,7 +187,7 @@ def test_lepton_binary_before_its_source(index, user):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
     upload(user, release, lepton_binary(), abi="api3_0", platform="macos_arm64")
 
-    with pytest.raises(ValidationError, match="needs its source-any artifact"):
+    with pytest.raises(ValidationError, match="needs its source artifact"):
         finalise(user, release)
     assert not release.is_final
 
@@ -236,9 +235,7 @@ def test_failed_append_removes_the_artifact(index, user, monkeypatch):
         upload(user, release, lepton_binary(), abi="api3_0", platform="macos_arm64")
 
     assert release.assets.count() == 1
-    assert artifact_files() == [
-        "dl/foo-bar/1.0.0/foo-bar-1.0.0-lepton-source-any.tar.gz"
-    ]
+    assert artifact_files() == ["dl/foo-bar/1.0.0/foo-bar-1.0.0-source-any-any.tar.gz"]
 
 
 @pytest.mark.django_db
@@ -247,7 +244,7 @@ def test_artifacts_are_never_replaced(user):
     upload(user, release, quark())
 
     with pytest.raises(
-        Conflict, match="already has an artifact any-any with another sha256"
+        Conflict, match="already has an artifact quark-any-any with another sha256"
     ):
         upload(user, release, quark(content=b"Changed {}\n"))
 
@@ -317,7 +314,7 @@ def test_manifest_must_match_the_release(user, kwargs, error):
 @pytest.mark.django_db
 def test_quark_tags(user):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
-    with pytest.raises(ValidationError, match="single artifact"):
+    with pytest.raises(ValidationError, match="has the abi and platform 'any'"):
         upload(user, release, quark(), abi="api3_0", platform="macos_arm64")
 
 
@@ -334,27 +331,16 @@ def test_source_artifact_has_platform_any(user):
 
 
 @pytest.mark.django_db
-def test_kind_change_is_refused(index, user):
+def test_kinds_are_per_version(index, user):
     release, _ = create_draft(user, "foo-bar", "1.0.0")
     upload(user, release, quark())
     finalise(user, release)
 
     next_release, _ = create_draft(user, "foo-bar", "2.0.0")
-    with pytest.raises(ValidationError, match="is a quark, not a lepton"):
-        upload(user, next_release, lepton_source(version="2.0.0"), abi="source")
+    upload(user, next_release, lepton_source(version="2.0.0"), abi="source")
 
-
-@pytest.mark.django_db
-def test_first_final_version_sets_the_kind(index, user):
-    # two drafts of different kinds, the first finalised one wins
-    quark_release, _ = create_draft(user, "foo-bar", "1.0.0")
-    upload(user, quark_release, quark())
-    lepton_release, _ = create_draft(user, "foo-bar", "2.0.0")
-    upload(user, lepton_release, lepton_source(version="2.0.0"), abi="source")
-
-    finalise(user, lepton_release)
-    with pytest.raises(ValidationError, match="is a lepton, not a quark"):
-        finalise(user, quark_release)
+    next_release.refresh_from_db()
+    assert next_release.kinds == ["lepton"]
 
 
 @pytest.mark.django_db

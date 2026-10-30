@@ -2,6 +2,7 @@
 server writes into the index. Keep them in sync with the CLI, not the other way round."""
 
 import re
+from typing import Any
 from urllib.parse import urlparse
 
 from django.core.exceptions import ValidationError
@@ -29,6 +30,17 @@ VERSION_REQ_RE = re.compile(rf"^\s*(?:{_WILD}|{_COMPARATOR}(?:,{_COMPARATOR})*)\
 
 # abi and platform of an artifact, e.g. `any`, `api3`, `linux_x86_64`
 ARTIFACT_TAG_RE = re.compile(r"^[a-z0-9_]+$")
+# abi and platform of artifacts which run everywhere, e.g. the sources
+ANY = "any"
+
+# The kinds a version declares (the `[artifact.<kind>]` tables of its manifest), in
+# the order of `Release.kinds` and the index line's `kinds`.
+RELEASE_KINDS = ("quark", "lepton")
+# Every version also has an artifact of this kind.
+SOURCE_KIND = "source"
+ARTIFACT_KINDS = (SOURCE_KIND, *RELEASE_KINDS)
+# kinds whose single artifact has the abi and platform `any`
+PORTABLE_KINDS = (SOURCE_KIND, "quark")
 
 # a full commit SHA, like the CLI's `is_full_sha` (stored lowercase)
 GIT_REF_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -97,6 +109,32 @@ def validate_git_url(value: str) -> None:
 def validate_artifact_tag(value: str) -> None:
     if not ARTIFACT_TAG_RE.match(value):
         raise ValidationError(_("Must only contain lowercase letters, digits and '_'."))
+
+
+def validate_release_kinds(value: Any) -> None:
+    """The kinds of a version: each of `RELEASE_KINDS` at most once, in its order."""
+    if not isinstance(value, list) or value != [
+        kind for kind in RELEASE_KINDS if kind in value
+    ]:
+        raise ValidationError(
+            _("Must be a list of the kinds %(kinds)s, each once and in this order."),
+            params={"kinds": ", ".join(RELEASE_KINDS)},
+        )
+
+
+def validate_artifact_kind_tags(kind: str, abi: str, platform: str) -> None:
+    """The abi and platform an artifact of `kind` can have: the source and quark
+    artifacts run everywhere, a lepton targets an abi and a platform."""
+    if kind in PORTABLE_KINDS and (abi, platform) != (ANY, ANY):
+        raise ValidationError(
+            _("A %(kind)s artifact has the abi and platform '%(any)s'."),
+            params={"kind": kind, "any": ANY},
+        )
+    if kind not in PORTABLE_KINDS and ANY in (abi, platform):
+        raise ValidationError(
+            _("A %(kind)s artifact needs an abi and a platform other than '%(any)s'."),
+            params={"kind": kind, "any": ANY},
+        )
 
 
 def validate_artifact_archive(file: File) -> None:

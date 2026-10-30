@@ -1,17 +1,15 @@
 import json
 import subprocess
 import tarfile
-from pathlib import Path
 
 import pytest
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 
 from packages.archive import SCHEMA_PATH, inspect_artifact
+from packages.tests.cli import MAGNET, MAGNET_CLI, needs_cli_without_artifact_kinds
 from packages.tests.factories import LEPTON_MANIFEST, QUARK_MANIFEST, quark, tar_gz
 from packages.validators import validate_artifact_archive
-
-MAGNET_CLI = Path(__file__).resolve().parents[4] / "magnet_cli"
 
 
 def inspect(data: bytes, abi: str = "any", platform: str = "any"):
@@ -255,16 +253,15 @@ def test_m1_checks_need_no_manifest():
 
 
 @pytest.mark.skipif(not MAGNET_CLI.is_dir(), reason="needs ../magnet_cli")
+@needs_cli_without_artifact_kinds
 def test_schema_is_the_clis():
     vendored = json.loads(SCHEMA_PATH.read_text())
     cli = json.loads((MAGNET_CLI / "schemes" / "magnet.v1.schema.json").read_text())
     assert vendored == cli
 
 
-@pytest.mark.skipif(
-    not (MAGNET_CLI / "target" / "debug" / "magnet").is_file(),
-    reason="needs a debug build of ../magnet_cli",
-)
+@pytest.mark.skipif(not MAGNET.is_file(), reason="needs a debug build of ../magnet_cli")
+@needs_cli_without_artifact_kinds
 def test_artifact_of_the_real_cli(tmp_path):
     for path, content in {
         "Classes/Foo.sc": "Foo {}\n",
@@ -278,7 +275,7 @@ def test_artifact_of_the_real_cli(tmp_path):
         (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / path).write_text(content)
     subprocess.run(
-        [MAGNET_CLI / "target" / "debug" / "magnet", "package"],
+        [MAGNET, "package"],
         cwd=tmp_path,
         env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"},
         check=True,
@@ -298,10 +295,8 @@ def test_artifact_of_the_real_cli(tmp_path):
     assert artifact.manifest["package"]["sclang"] == ">=3.13"
 
 
-@pytest.mark.skipif(
-    not (MAGNET_CLI / "target" / "debug" / "magnet").is_file(),
-    reason="needs a debug build of ../magnet_cli",
-)
+@pytest.mark.skipif(not MAGNET.is_file(), reason="needs a debug build of ../magnet_cli")
+@needs_cli_without_artifact_kinds
 def test_lepton_artifacts_of_the_real_cli(tmp_path):
     for path, content in {
         "Classes/Foo.sc": "Foo {}\n",
@@ -314,7 +309,7 @@ def test_lepton_artifacts_of_the_real_cli(tmp_path):
         (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / path).write_text(content)
     subprocess.run(
-        [MAGNET_CLI / "target" / "debug" / "magnet", "package"],
+        [MAGNET, "package"],
         cwd=tmp_path,
         env={
             "HOME": str(tmp_path),

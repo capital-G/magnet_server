@@ -7,8 +7,9 @@ from django.core.management import BaseCommand, CommandError
 from git_db.db import GitCommandError
 from git_db.files import IndexWriteError
 from packages.management.utils import resolve_owner
-from packages.models import ANY, Project
+from packages.models import ANY
 from packages.services import publish_release
+from packages.validators import RELEASE_KINDS
 
 
 def dependency(value: str) -> tuple[str, str]:
@@ -35,7 +36,7 @@ class Command(BaseCommand):
             "--name", required=True, help="package name, e.g. DDW_Common"
         )
         parser.add_argument("--version", required=True, help="MAJOR.MINOR.PATCH")
-        parser.add_argument("--kind", required=True, choices=Project.Kind.values)
+        parser.add_argument("--kind", required=True, choices=RELEASE_KINDS)
         parser.add_argument(
             "--file", required=True, type=Path, help="the artifact as .tar.gz"
         )

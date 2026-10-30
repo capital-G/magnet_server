@@ -86,7 +86,6 @@ class ProjectFactory(factory.django.DjangoModelFactory[Project]):
     owner = factory.SubFactory(UserFactory)
 
     name = factory.Sequence(lambda n: f"project-{n}")
-    kind = Project.Kind.quark
 
 
 class ReleaseFactory(factory.django.DjangoModelFactory[Release]):
@@ -96,7 +95,7 @@ class ReleaseFactory(factory.django.DjangoModelFactory[Release]):
     project = factory.SubFactory(ProjectFactory)
     owner = factory.SubFactory(UserFactory)
     version = factory.Sequence(lambda n: f"1.0.{n}")
-    kind = factory.LazyAttribute(lambda o: o.project.kind or Project.Kind.quark)
+    kinds = factory.LazyFunction(lambda: ["quark"])
 
     class Params:
         # in the index (without writing it), the default is a draft
@@ -109,6 +108,7 @@ class AssetFactory(factory.django.DjangoModelFactory[Asset]):
 
     release = factory.SubFactory(ReleaseFactory)
     uploader = factory.SelfAttribute("release.owner")
+    kind = factory.LazyAttribute(lambda o: o.release.kinds[0])
     abi = ANY
     platform = ANY
     file = factory.LazyFunction(

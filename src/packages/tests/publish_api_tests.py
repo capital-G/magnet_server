@@ -253,7 +253,11 @@ def test_upload_conflict(api):
         (quark(), {"sha256": "ABC"}, "X-Magnet-Sha256 must be the sha256"),
         (quark(name="other"), {}, "The manifest is for other, not foo-bar."),
         (b"not a tarball", {}, "not a valid .tar.gz"),
-        (quark(), {"abi": "api3_0", "platform": "macos_arm64"}, "single artifact"),
+        (
+            quark(),
+            {"abi": "api3_0", "platform": "macos_arm64"},
+            "has the abi and platform 'any'",
+        ),
         (quark(), {"abi": "API3"}, "lowercase letters"),
     ],
 )
@@ -320,8 +324,7 @@ def test_lepton_draft_needs_its_source(api):
     response = api.finalise()
     assert response.status_code == 400
     assert response.json() == {
-        "detail": "foo-bar 1.0.0 needs its source-any artifact before it can be "
-        "finalised."
+        "detail": "foo-bar 1.0.0 needs its source artifact before it can be finalised."
     }
 
     assert api.upload(lepton_source(), abi="source").status_code == 201

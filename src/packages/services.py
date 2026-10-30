@@ -19,6 +19,7 @@ from git_db.db import get_git_database
 from packages.archive import SOURCE_ABI, InspectedArtifact, inspect_artifact
 from packages.models import (
     ANY,
+    SOURCE_KIND,
     Asset,
     DeletedRelease,
     Dependency,
@@ -30,6 +31,7 @@ from packages.models import (
 )
 from packages.validators import (
     normalize_name,
+    validate_artifact_kind_tags,
     validate_artifact_tag,
     validate_git_url,
     validate_name,
@@ -50,7 +52,7 @@ class IndexFields:
     """The fields of a manifest which reach the index. All artifacts of a version
     must agree on them (name and version are checked against the release)."""
 
-    kind: str
+    kinds: list[str]
     sclang: str | None
     # normalized name -> version requirement or git dependency, as in the index
     # line (`Release.index_dependencies`), sorted
@@ -85,34 +87,23 @@ def ensure_can_publish(user: User, project: Project) -> None:
         )
 
 
-def ensure_kind(project: Project, kind: str) -> None:
-    """The first final version fixes the kind of a package (D2.3)."""
-    if project.kind and project.kind != kind:
-        raise ValidationError(
-            _("%(project)s is a %(kind)s, not a %(requested)s.")
-            % {"project": project, "kind": project.kind, "requested": kind}
-        )
-
-
-def get_or_create_project(*, name: str, kind: str, owner: User) -> Project:
-    """The project with the normalized `name`, created with `kind` if missing
-    (for the management commands, which know the kind up front).
-    A new project's name must not be reserved for someone else."""
+def get_or_create_project(*, name: str, owner: User) -> Project:
+    """The project with the normalized `name`, created if missing (for the
+    management commands). A new project's name must not be reserved for someone
+    else."""
     project = Project.objects.filter(normalized_name=normalize_name(name)).first()
     if project is None:
         ensure_name_available(name, owner)
-        project = Project(name=name, kind=kind, owner=owner)
+        project = Project(name=name, owner=owner)
         project.full_clean()
         project.save()
         logger.info(f"Created project {project}")
-    else:
-        ensure_kind(project, kind)
     return project
 
 
 def _project_for_draft(user: User, name: str) -> Project:
     """The existing project, which `user` must be allowed to publish to, or a new
-    one owned by `user` (its kind is set by its first final version)."""
+    one owned by `user`."""
     normalized_name = normalize_name(name)
     project = Project.objects.filter(normalized_name=normalized_name).first()
     if project is None:
@@ -170,21 +161,22 @@ def file_sha256(file: File) -> str:
 
 
 def _existing_asset(
-    release: Release, abi: str, platform: str, sha256: str
+    release: Release, kind: str, abi: str, platform: str, sha256: str
 ) -> Asset | None:
     """The identical artifact if it was uploaded already. Artifacts are never
     replaced, so a different one is a conflict."""
-    asset = release.assets.filter(abi=abi, platform=platform).first()
+    asset = release.assets.filter(kind=kind, abi=abi, platform=platform).first()
     if asset is None:
         return None
     if asset.sha256_checksum != sha256:
         raise Conflict(
             _(
-                "%(release)s already has an artifact %(abi)s-%(platform)s with "
-                "another sha256 (%(sha256)s), artifacts can't be replaced."
+                "%(release)s already has an artifact %(kind)s-%(abi)s-%(platform)s "
+                "with another sha256 (%(sha256)s), artifacts can't be replaced."
             )
             % {
                 "release": label(release),
+                "kind": kind,
                 "abi": abi,
                 "platform": platform,
                 "sha256": asset.sha256_checksum,
@@ -310,24 +302,27 @@ def index_fields(manifest: dict[str, Any], release: Release) -> IndexFields:
     if sclang is not None:
         validate_version_req(sclang)
     return IndexFields(
-        kind=package["kind"],
+        # the manifest's single kind, until the archive inspection knows the
+        # `[artifact.<kind>]` tables (S23)
+        kinds=[package["kind"]],
         sclang=sclang,
         dependencies=manifest_dependencies(manifest, release.project.normalized_name),
     )
 
 
-def ensure_tags(kind: str, abi: str, platform: str) -> None:
-    if kind == Project.Kind.quark and (abi, platform) != (ANY, ANY):
-        raise ValidationError(
-            _("A quark has a single artifact with abi and platform 'any'.")
-        )
-    if abi == SOURCE_ABI and platform != ANY:
-        raise ValidationError(_("The source artifact has the platform 'any'."))
+def legacy_artifact_kind(kinds: list[str], abi: str) -> tuple[str, str]:
+    """The kind and abi of an artifact uploaded by abi and platform only, as long as
+    the publish API and the commands have no artifact kind (S22, S25): the abi
+    `source` is the source artifact (`any`/`any`), every other artifact has the
+    version's single kind."""
+    if abi == SOURCE_ABI:
+        return SOURCE_KIND, ANY
+    return kinds[0], abi
 
 
 def stored_index_fields(release: Release) -> IndexFields:
     return IndexFields(
-        kind=release.kind,
+        kinds=release.kinds,
         sclang=release.sclang or None,
         dependencies=release.index_dependencies(),
     )
@@ -361,7 +356,7 @@ def _store_manifest(
 ) -> None:
     """Stores the manifest of a version's first artifact."""
     metadata = inspected.manifest.get("metadata", {})
-    release.kind = fields.kind
+    release.kinds = fields.kinds
     release.sclang = fields.sclang or ""
     release.summary = metadata.get("summary", "")
     release.description = metadata.get("description", "")
@@ -384,6 +379,7 @@ def _store_asset(
     release: Release,
     uploader: User,
     *,
+    kind: str,
     abi: str,
     platform: str,
     file: File,
@@ -395,6 +391,7 @@ def _store_asset(
         release=release,
         uploader=uploader,
         file=file,
+        kind=kind,
         abi=abi,
         platform=platform,
         sha256_checksum=sha256,
@@ -420,7 +417,7 @@ def add_artifact(
     as is. `sha256` is what the client sent, the server computes its own.
 
     The archive is inspected (`inspect_artifact`), and its manifest must match the
-    release. The first artifact of a version stores the manifest's kind, `sclang`,
+    release. The first artifact of a version stores the manifest's kinds, `sclang`,
     dependencies and metadata, every later one must agree on the index fields."""
     ensure_can_publish(user, release.project)
     validate_artifact_tag(abi)
@@ -431,12 +428,15 @@ def add_artifact(
             _("The sha256 of the upload is %(actual)s, not %(sent)s.")
             % {"actual": actual, "sent": sha256}
         )
-    if existing := _existing_asset(release, abi, platform, actual):
-        return existing, False
+    if release.kinds:
+        kind, artifact_abi = legacy_artifact_kind(release.kinds, abi)
+        if existing := _existing_asset(release, kind, artifact_abi, platform, actual):
+            return existing, False
 
     inspected = inspect_artifact(file, abi, platform)
     fields = index_fields(inspected.manifest, release)
-    ensure_tags(fields.kind, abi, platform)
+    kind, abi = legacy_artifact_kind(fields.kinds, abi)
+    validate_artifact_kind_tags(kind, abi, platform)
 
     with transaction.atomic():
         # serializes the uploads of a version, e.g. of a CI matrix
@@ -445,14 +445,13 @@ def add_artifact(
             .select_related("project")
             .get(pk=release.pk)
         )
-        if existing := _existing_asset(release, abi, platform, actual):
+        if existing := _existing_asset(release, kind, abi, platform, actual):
             return existing, False
-        ensure_kind(release.project, fields.kind)
         if release.assets.exists():
             stored = stored_index_fields(release)
             if differences := [
                 field
-                for field in ("kind", "sclang", "dependencies")
+                for field in ("kinds", "sclang", "dependencies")
                 if getattr(stored, field) != getattr(fields, field)
             ]:
                 raise ValidationError(
@@ -468,6 +467,7 @@ def add_artifact(
         asset = _store_asset(
             release,
             user,
+            kind=kind,
             abi=abi,
             platform=platform,
             file=file,
@@ -487,9 +487,11 @@ def add_artifact(
     return asset, True
 
 
-def required_artifact(kind: str) -> tuple[str, str]:
-    """The artifact a version needs before it can be finalised."""
-    return (ANY, ANY) if kind == Project.Kind.quark else (SOURCE_ABI, ANY)
+def required_artifact(kinds: list[str]) -> str:
+    """The kind of the artifact a version needs before it can be finalised: as long
+    as the archive inspection knows only one kind per version (S23), a quark has no
+    source artifact."""
+    return "quark" if "quark" in kinds else SOURCE_KIND
 
 
 def finalise(user: User, release: Release) -> Release:
@@ -499,8 +501,8 @@ def finalise(user: User, release: Release) -> Release:
 
 
 def finalise_release(release: Release) -> Release:
-    """Writes the draft into the index, which publishes it. The first final version
-    of a package sets its kind. A final version is returned as is."""
+    """Writes the draft into the index, which publishes it. A final version is
+    returned as is."""
     with transaction.atomic():
         release = (
             Release.objects.select_for_update()
@@ -509,25 +511,16 @@ def finalise_release(release: Release) -> Release:
         )
         if release.is_final:
             return release
-        if not release.kind:
+        if not release.kinds:
             raise ValidationError(
                 _("%(release)s has no artifacts yet.") % {"release": label(release)}
             )
-        abi, platform = required_artifact(release.kind)
-        if not release.assets.filter(abi=abi, platform=platform).exists():
+        kind = required_artifact(release.kinds)
+        if not release.assets.filter(kind=kind).exists():
             raise ValidationError(
-                _(
-                    "%(release)s needs its %(abi)s-%(platform)s artifact "
-                    "before it can be finalised."
-                )
-                % {"release": label(release), "abi": abi, "platform": platform}
+                _("%(release)s needs its %(kind)s artifact before it can be finalised.")
+                % {"release": label(release), "kind": kind}
             )
-
-        project = Project.objects.select_for_update().get(pk=release.project_id)
-        ensure_kind(project, release.kind)
-        if not project.kind:
-            project.kind = release.kind
-            project.save(update_fields=["kind"])
         get_git_database().commit_release(release)
     logger.info(f"Finalised {release}")
     return release
@@ -594,23 +587,24 @@ def publish_release(
     platform: str = ANY,
     uploaded_via: str = "",
 ) -> Release:
-    """Publishes a version with one artifact in one go (draft, artifact, finalise),
-    for the management commands. Unlike `add_artifact`, the kind and dependencies
-    are passed in and the artifact only gets the M1 checks, since the M1 fixture
-    tarballs have no `magnet.toml`.
+    """Publishes a version of `kind` with one artifact in one go (draft, artifact,
+    finalise), for the management commands. Unlike `add_artifact`, the kind and
+    dependencies are passed in and the artifact only gets the M1 checks, since the
+    M1 fixture tarballs have no `magnet.toml`.
 
     Dependencies map a package name (any spelling) to a version requirement, which
     must refer to an existing project, or to a git dependency in the form of the
     index line (also the one of the manifest). If a step fails, the database
     changes are rolled back and the stored artifact is removed again."""
-    project = get_or_create_project(name=name, kind=kind, owner=owner)
+    project = get_or_create_project(name=name, owner=owner)
     release, created = create_draft(owner, name, version)
     if not created:
         raise ValidationError(
             _("%(release)s exists already.") % {"release": label(release)}
         )
-    release.kind = kind
-    release.save(update_fields=["kind"])
+    release.kinds = [kind]
+    release.full_clean()
+    release.save(update_fields=["kinds"])
 
     for dependency_name, requirement in (dependencies or {}).items():
         if not isinstance(requirement, str):
@@ -637,9 +631,11 @@ def publish_release(
         dependency.full_clean()
         dependency.save()
 
+    artifact_kind, abi = legacy_artifact_kind(release.kinds, abi)
     asset = _store_asset(
         release,
         owner,
+        kind=artifact_kind,
         abi=abi,
         platform=platform,
         file=file,

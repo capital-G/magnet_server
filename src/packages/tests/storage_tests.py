@@ -35,11 +35,12 @@ def entry(name: str, type=tarfile.REGTYPE, linkname: str = "") -> tarfile.TarInf
 QUARK = tar_gz(entry("Classes", tarfile.DIRTYPE), entry("Classes/Foo.sc"))
 
 
-def upload(release, data: bytes = QUARK, **kwargs) -> Asset:
+def upload(release, data: bytes = QUARK, kind="quark", **kwargs) -> Asset:
     asset = Asset(
         release=release,
         uploader=release.owner,
         file=ContentFile(data, name="upload.tar.gz"),
+        kind=kind,
         **kwargs,
     )
     asset.full_clean()
@@ -60,13 +61,17 @@ def test_quark_artifact_is_stored_at_its_download_path():
 
 
 @pytest.mark.django_db
-def test_second_upload_for_same_abi_and_platform_is_rejected():
+def test_second_upload_for_same_kind_abi_and_platform_is_rejected():
     release = ReleaseFactory()
     upload(release)
 
     with pytest.raises(ValidationError) as e:
         upload(release, data=tar_gz(entry("Classes/Other.sc")))
-    assert "__all__" in e.value.message_dict  # unique (release, abi, platform)
+    # unique (release, kind, abi, platform)
+    assert "__all__" in e.value.message_dict
+
+    # the same abi and platform for another kind
+    upload(release, data=tar_gz(entry("Classes/Other.sc")), kind="source")
 
 
 @pytest.mark.django_db
@@ -84,6 +89,7 @@ def test_existing_artifact_file_is_never_replaced():
     replacement = Asset(
         release=release,
         uploader=release.owner,
+        kind="quark",
         file=ContentFile(tar_gz(entry("Classes/Other.sc")), name="upload.tar.gz"),
     )
     with pytest.raises(ArtifactExistsError):
@@ -145,14 +151,16 @@ def test_invalid_archive_is_not_stored():
 
 
 @pytest.mark.django_db
-def test_lepton_artifacts_per_platform():
+def test_artifacts_are_stored_with_their_kind():
     release = ReleaseFactory(
-        project__name="gamma", project__kind="lepton", version="0.3.0"
+        project__name="gamma", kinds=["quark", "lepton"], version="0.3.0"
     )
-    upload(release, abi="api3", platform="linux_x86_64")
-    upload(release, abi="source", platform=ANY)
+    upload(release, kind="lepton", abi="api3", platform="linux_x86_64")
+    upload(release, kind="source", abi=ANY, platform=ANY)
+    upload(release, kind="quark", abi=ANY, platform=ANY)
 
     assert sorted(a.file.name for a in release.assets.all()) == [
         "dl/gamma/0.3.0/gamma-0.3.0-lepton-api3-linux_x86_64.tar.gz",
-        "dl/gamma/0.3.0/gamma-0.3.0-lepton-source-any.tar.gz",
+        "dl/gamma/0.3.0/gamma-0.3.0-quark-any-any.tar.gz",
+        "dl/gamma/0.3.0/gamma-0.3.0-source-any-any.tar.gz",
     ]

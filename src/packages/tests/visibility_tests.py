@@ -43,6 +43,22 @@ def test_api_lists_only_final_releases(client, published, draft_only):
 
 
 @pytest.mark.django_db
+def test_api_shows_the_kinds_of_the_latest_final_version(client, published):
+    ReleaseFactory.create(
+        project=published, version="1.1.0", kinds=["quark", "lepton"], final=True
+    )
+
+    [project] = client.get("/api/v1/projects/").json()
+    assert project["kinds"] == ["quark", "lepton"]
+    detail = client.get(f"/api/v1/projects/{published.slug}/").json()
+    assert detail["kinds"] == ["quark", "lepton"]
+    assert [(r["version"], r["kinds"]) for r in detail["releases"]] == [
+        ("1.1.0", ["quark", "lepton"]),
+        ("1.0.0", ["quark"]),
+    ]
+
+
+@pytest.mark.django_db
 def test_list_and_search_show_only_public_projects(client, published, draft_only):
     content = client.get(reverse("projects-list")).text
     assert "alpha" in content and "beta" not in content

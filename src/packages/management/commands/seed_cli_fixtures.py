@@ -11,7 +11,7 @@ from django.core.management import BaseCommand, CommandError
 from git_db.db import GitCommandError
 from git_db.files import IndexWriteError
 from packages.management.utils import resolve_owner
-from packages.models import ANY, Project, Release, artifact_filename
+from packages.models import ANY, Release, artifact_filename
 from packages.services import get_or_create_project, publish_release
 
 
@@ -50,7 +50,7 @@ class Command(BaseCommand):
         # dependencies must refer to existing projects, so create all of them
         # first and publish in file order afterwards
         for line in lines:
-            get_or_create_project(name=line["name"], kind=line["kind"], owner=owner)
+            get_or_create_project(name=line["name"], owner=owner)
 
         for line in lines:
             self.publish(line, dl_dir, owner)
@@ -76,7 +76,7 @@ class Command(BaseCommand):
 
     def is_publishable(self, line: dict[str, Any], dl_dir: Path) -> bool:
         release = f"{line['name']} {line['version']}"
-        if line["kind"] != Project.Kind.quark:
+        if line["kind"] != "quark":
             self.stderr.write(self.style.WARNING(f"Skip {release}: not a quark"))
             return False
         if [(a["abi"], a["platform"]) for a in line["artifacts"]] != [(ANY, ANY)]:

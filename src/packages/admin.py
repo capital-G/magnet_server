@@ -121,7 +121,6 @@ class ProjectAdmin(PermanentDeleteMixin, admin.ModelAdmin):
     list_display = [
         "name",
         "normalized_name",
-        "kind",
         "owner",
     ]
 
@@ -135,7 +134,6 @@ class ProjectAdmin(PermanentDeleteMixin, admin.ModelAdmin):
     ]
 
     list_filter = [
-        "kind",
         "last_update",
         "created",
     ]
@@ -182,6 +180,7 @@ class AssetInline(admin.TabularInline):
     extra = 0
     can_delete = False
     fields = [
+        "kind",
         "abi",
         "platform",
         "sha256_checksum",
@@ -227,7 +226,7 @@ class ReleaseAdmin(PermanentDeleteMixin, admin.ModelAdmin):
     list_display = [
         "project",
         "version",
-        "kind",
+        "kinds",
         "created",
         "published_at",
         "yanked",
@@ -252,7 +251,6 @@ class ReleaseAdmin(PermanentDeleteMixin, admin.ModelAdmin):
 
     list_filter = [
         ReleaseStateFilter,
-        "kind",
         "created",
         "last_update",
         "yanked",
@@ -300,6 +298,7 @@ class AssetAdmin(admin.ModelAdmin):
         "file",
         "created",
         "release",
+        "kind",
         "abi",
         "platform",
     ]
@@ -311,6 +310,7 @@ class AssetAdmin(admin.ModelAdmin):
 
     list_filter = [
         "created",
+        "kind",
         "abi",
         "platform",
     ]

@@ -11,12 +11,11 @@ from django.core.management import call_command
 from git_db.db import get_git_database
 from git_db.tests.git_db_tests import show
 from packages.models import Release
+from packages.tests.cli import MAGNET, needs_cli_without_artifact_kinds
 from users.oauth import create_access_token
 from users.tests.factories import UserFactory
 
-MAGNET = (
-    Path(__file__).resolve().parents[4] / "magnet_cli" / "target" / "debug" / "magnet"
-)
+pytestmark = needs_cli_without_artifact_kinds
 
 LEGACY_REF = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 

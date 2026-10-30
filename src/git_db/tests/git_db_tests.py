@@ -20,7 +20,7 @@ from git_db.db import (
 from git_db.files import DuplicateIndexEntry, IndexEntryMissing, KindMismatch
 from git_db.mirror import mirror_root
 from git_db.models import GitArtifactModel, GitIndexConfigModel, GitReleaseModel
-from packages.models import Project, Release
+from packages.models import Release
 from packages.tests.factories import (
     AssetFactory,
     DependencyFactory,
@@ -180,14 +180,12 @@ def test_duplicate_version_is_rejected(index: GitDatabase):
 
 @pytest.mark.django_db
 def test_kind_is_fixed_by_first_release(index: GitDatabase):
-    first = published_release(project__kind=Project.Kind.quark, version="1.0.0")
+    first = published_release(kinds=["quark"], version="1.0.0")
     index.commit_release(first)
 
-    project = first.project
-    project.kind = Project.Kind.lepton
-    project.save()
+    second = published_release(project=first.project, kinds=["lepton"], version="2.0.0")
     with pytest.raises(KindMismatch):
-        index.commit_release(published_release(project=project, version="2.0.0"))
+        index.commit_release(second)
 
 
 @pytest.mark.django_db
@@ -219,13 +217,13 @@ def test_yank_of_unpublished_release_is_rejected(index: GitDatabase):
 def test_artifacts_are_appended(index: GitDatabase):
     source = AssetFactory.create(
         release__project__name="gamma",
-        release__project__kind=Project.Kind.lepton,
+        release__kinds=["lepton"],
         release__version="0.3.0",
-        abi="source",
+        kind="source",
     )
     index.commit_release(source.release)
     binary = AssetFactory.create(
-        release=source.release, abi="api3", platform="linux_x86_64"
+        release=source.release, kind="lepton", abi="api3", platform="linux_x86_64"
     )
 
     binary.make_git_entry()
@@ -331,7 +329,7 @@ def test_admin_reports_index_errors(admin_client, index: GitDatabase):
     )
 
     assert response.status_code == 200
-    assert "needs its any-any artifact" in response.content.decode()
+    assert "needs its quark artifact" in response.content.decode()
 
 
 def mirrored(path: str) -> Path:
