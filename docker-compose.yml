@@ -6,6 +6,7 @@
 #   git://localhost:9418/magnet_index.git   the index (git daemon)
 #   http://localhost:8081          the index in gitweb
 #   (worker)                       background tasks, e.g. class extraction
+#   (docs_worker)                  docs builds, needs `make docs-builder`
 
 volumes:
   db:
@@ -17,7 +18,9 @@ volumes:
 
 services:
   server:
-    build: .
+    build:
+      context: .
+      target: server
     depends_on:
       database:
         condition: service_healthy
@@ -43,7 +46,9 @@ services:
 
   # runs the background tasks of the queue "default" (class extraction)
   worker:
-    build: .
+    build:
+      context: .
+      target: server
     depends_on:
       server:
         condition: service_healthy
@@ -54,6 +59,41 @@ services:
       - MAGNET_ARTIFACTS_ROOT=/srv/artifacts
     volumes:
       - artifacts:/srv/artifacts:ro
+
+  # runs the docs builds (queue "docs") in containers of the builder image
+  # (`make docs-builder`), started through the container engine's socket
+  docs_worker:
+    build:
+      context: .
+      target: docs_worker
+    depends_on:
+      server:
+        condition: service_healthy
+    entrypoint: ["python", "manage.py", "db_worker", "--queue-name", "docs", "--no-reload"]
+    # SELinux (e.g. podman machine's VM) keeps containers from using the socket
+    security_opt:
+      - label=disable
+    env_file:
+      - .local.env
+    environment:
+      - MAGNET_ARTIFACTS_ROOT=/srv/artifacts
+      - MAGNET_DOCS_RUNNER=docker
+      - DOCKER_HOST=unix:///run/engine.sock
+      # the engine resolves the work dirs of the build containers on its host
+      - MAGNET_DOCS_WORK_DIR=/tmp/magnet-docs-work
+      # `magnet install` reaches the stack's published ports from the host's network
+      - MAGNET_DOCS_INSTALL_NETWORK=host
+      - MAGNET_DOCS_GIT_INDEX_URL=git://localhost:${GIT_DAEMON_PORT:-9418}/magnet_index.git
+    volumes:
+      - artifacts:/srv/artifacts
+      # podman machine's (rootful) socket; Docker: /var/run/docker.sock, rootless
+      # podman: /run/user/<uid>/podman/podman.sock
+      - ${MAGNET_DOCS_SOCKET:-/run/podman/podman.sock}:/run/engine.sock
+      - type: bind
+        source: /tmp/magnet-docs-work
+        target: /tmp/magnet-docs-work
+        bind:
+          create_host_path: true
 
   database:
     image: postgres:17-alpine

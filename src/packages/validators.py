@@ -86,6 +86,59 @@ def validate_version_req(value: str) -> None:
         )
 
 
+_COMPARATOR_PARTS_RE = re.compile(
+    rf"^(=|>=?|<=?|~|\^)?\s*({_NUM})(?:\.({_NUM}|{_WILD}))?(?:\.({_NUM}|{_WILD}))?$"
+)
+
+
+def _next_after(parts: list[int], length: int) -> tuple[int, ...]:
+    """The first version after the range of the first `length` parts."""
+    bumped = parts[:length]
+    bumped[-1] += 1
+    return tuple(bumped + [0] * (3 - length))
+
+
+def version_req_matches(requirement: str, version: str) -> bool:
+    """Whether `version` (`MAJOR.MINOR.PATCH`) meets a valid `requirement`, with the
+    semantics of the `semver` crate: no operator means `^` (or `=` with a wildcard), a
+    partial version stands for its whole range (`=1.2` is `>=1.2.0, <1.3.0`, `<=1` is
+    `<2.0.0`)."""
+    target = tuple(int(part) for part in version.split("."))
+    for comparator in requirement.split(","):
+        comparator = comparator.strip()
+        if re.fullmatch(_WILD, comparator):
+            continue
+        match = _COMPARATOR_PARTS_RE.match(comparator)
+        if match is None:
+            raise ValueError(f"Not a version requirement: {requirement}")
+        parts = [int(part) for part in match.groups()[1:] if part and part.isdigit()]
+        has_wildcard = any(part and not part.isdigit() for part in match.groups()[1:])
+        # a bare wildcard version stands for its range (`3.14.x` is `=3.14`)
+        op = match[1] or ("=" if has_wildcard else "^")
+        low = tuple(parts + [0] * (3 - len(parts)))
+        end = _next_after(parts, len(parts))
+        if op == "^":
+            # the leftmost non-zero part may not change
+            if len(parts) == 1 or parts[0] > 0:
+                end = _next_after(parts, 1)
+            elif len(parts) == 2 or parts[1] > 0:
+                end = _next_after(parts, 2)
+        elif op == "~":
+            end = _next_after(parts, min(len(parts), 2))
+        ok = {
+            "=": low <= target < end,
+            ">": target >= end,
+            ">=": target >= low,
+            "<": target < low,
+            "<=": target < end,
+            "~": low <= target < end,
+            "^": low <= target < end,
+        }[op]
+        if not ok:
+            return False
+    return True
+
+
 def validate_git_ref(value: str) -> None:
     if not GIT_REF_RE.match(value):
         raise ValidationError(_("Must be a full commit SHA (40 lowercase hex digits)."))

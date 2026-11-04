@@ -1,4 +1,4 @@
-FROM python:3.13-alpine
+FROM python:3.13-alpine AS server
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -27,3 +27,9 @@ RUN DJANGO_SECRET_KEY=collectstatic python manage.py collectstatic --noinput
 EXPOSE 8000
 
 ENTRYPOINT [ "/usr/local/bin/entrypoint.sh" ]
+
+
+# runs the docs builds: starts their containers (builder image, `make docs-builder`)
+# through the socket of the host's container engine, docker or podman
+FROM server AS docs_worker
+RUN apk add --no-cache docker-cli

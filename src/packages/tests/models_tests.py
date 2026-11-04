@@ -11,6 +11,7 @@ from packages.validators import (
     validate_release_kinds,
     validate_version,
     validate_version_req,
+    version_req_matches,
 )
 
 
@@ -140,6 +141,35 @@ def test_valid_version_req(constraint):
 def test_invalid_version_req(constraint):
     with pytest.raises(ValidationError):
         validate_version_req(constraint)
+
+
+@pytest.mark.parametrize(
+    "requirement, matching, not_matching",
+    [
+        ("*", ["0.0.1", "3.14.1"], []),
+        (">=3.13", ["3.13.0", "3.14.1", "4.0.0"], ["3.12.9"]),
+        (">3.13", ["3.14.0"], ["3.13.9"]),
+        (">3.13.1", ["3.13.2"], ["3.13.1"]),
+        ("<3.14", ["3.13.9"], ["3.14.0"]),
+        ("<=3.14", ["3.14.9"], ["3.15.0"]),
+        ("=3.14", ["3.14.0", "3.14.9"], ["3.15.0", "3.13.9"]),
+        ("=3.14.1", ["3.14.1"], ["3.14.2"]),
+        # no operator: caret
+        ("3.13", ["3.13.0", "3.99.0"], ["4.0.0", "3.12.0"]),
+        ("^0.2.3", ["0.2.9"], ["0.3.0", "0.2.2"]),
+        ("^0.0.3", ["0.0.3"], ["0.0.4"]),
+        ("^0.0", ["0.0.9"], ["0.1.0"]),
+        ("^0", ["0.9.0"], ["1.0.0"]),
+        ("~3.13.1", ["3.13.5"], ["3.14.0", "3.13.0"]),
+        ("~3", ["3.99.0"], ["4.0.0"]),
+        ("3.*", ["3.0.0", "3.14.1"], ["4.0.0"]),
+        ("3.14.x", ["3.14.1"], ["3.15.0"]),
+        (" >= 3.13 , < 3.15 ", ["3.14.1"], ["3.15.0", "3.12.0"]),
+    ],
+)
+def test_version_req_matches(requirement, matching, not_matching):
+    assert all(version_req_matches(requirement, v) for v in matching)
+    assert not any(version_req_matches(requirement, v) for v in not_matching)
 
 
 @pytest.mark.parametrize("tag", ["any", "source", "api3", "linux_x86_64"])

@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import tempfile
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -53,6 +54,7 @@ INSTALLED_APPS = [
     "django_tasks_db",
     "packages.apps.PackagesConfig",
     "users.apps.UsersConfig",
+    "docs.apps.DocsConfig",
 ]
 
 MIDDLEWARE = [
@@ -248,6 +250,35 @@ MAGNET_DOWNLOAD_BASE_URL = os.environ.get(
 # Base URL of this server, written as `api` into the index `config.json`,
 # so the CLI finds the server to log in and publish.
 MAGNET_API_BASE_URL = os.environ.get("MAGNET_API_BASE_URL", "http://localhost:8000/")
+
+# Package docs (`docs` app, docs_plan.md): each build runs `magnet install` and sclang
+# in throwaway containers of the builder image (docs_builder/, `make docs-builder`) via
+# the docker or podman CLI, and publishes to MAGNET_ARTIFACTS_ROOT/docs/<name>/.
+# Off unless enabled: the immediate task backend would build inside a request.
+MAGNET_DOCS_BUILDS = os.environ.get("MAGNET_DOCS_BUILDS", "") in ("1", "true")
+# the CLI which starts containers, split like a shell command (e.g. `podman --remote`)
+MAGNET_DOCS_RUNNER = os.environ.get("MAGNET_DOCS_RUNNER", "podman")
+# SuperCollider of the builder image, compared with the `sclang` versions declare
+MAGNET_DOCS_SCLANG_VERSION = os.environ.get("MAGNET_DOCS_SCLANG_VERSION", "3.14.1")
+MAGNET_DOCS_IMAGE = os.environ.get(
+    "MAGNET_DOCS_IMAGE", f"magnet-docs-builder:sc{MAGNET_DOCS_SCLANG_VERSION}"
+)
+# Work dirs of the builds, bind-mounted into the build containers. The container
+# engine resolves these paths on its host, so a worker running in a container must
+# see this directory at the same path as the host.
+MAGNET_DOCS_WORK_DIR = Path(
+    os.environ.get("MAGNET_DOCS_WORK_DIR", Path(tempfile.gettempdir()) / "magnet-docs")
+)
+# the index `magnet install` uses in the build container (reachable from there) and
+# the network of that container (the engine's default if empty, e.g. `host`)
+MAGNET_DOCS_GIT_INDEX_URL = os.environ.get("MAGNET_DOCS_GIT_INDEX_URL", "")
+MAGNET_DOCS_INSTALL_NETWORK = os.environ.get("MAGNET_DOCS_INSTALL_NETWORK", "")
+# limits of each build container: seconds, memory, processes, CPUs (if set; rootless
+# podman needs the cgroup cpu controller delegated for it)
+MAGNET_DOCS_TIMEOUT = int(os.environ.get("MAGNET_DOCS_TIMEOUT", "600"))
+MAGNET_DOCS_MEMORY = os.environ.get("MAGNET_DOCS_MEMORY", "2g")
+MAGNET_DOCS_PIDS_LIMIT = int(os.environ.get("MAGNET_DOCS_PIDS_LIMIT", "256"))
+MAGNET_DOCS_CPUS = os.environ.get("MAGNET_DOCS_CPUS", "")
 
 # Redirect URIs of the CLI's OAuth application (space-separated), set by the data
 # migration `users/0002`. `magnet login --no-browser` redirects to

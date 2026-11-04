@@ -37,5 +37,8 @@ STORAGES = {
     },
 }
 
+# docs builds run in the compose service `docs_worker`
+MAGNET_DOCS_BUILDS = True
+
 # tasks go to the database, the compose service `worker` runs them
 TASKS = {"default": {**TASKS["default"], "BACKEND": "django_tasks_db.DatabaseBackend"}}

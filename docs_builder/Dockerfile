@@ -94,7 +94,6 @@ COPY render.scd /opt/magnet/render.scd
 RUN useradd --uid 1000 --create-home builder
 USER builder
 ENV HOME=/tmp/home \
-    MAGNET_SCLANG=/usr/local/bin/sclang \
     SC_VERSION=${SC_VERSION}
 LABEL org.opencontainers.image.title="magnet docs builder" \
       org.supercollider.version=${SC_VERSION}
