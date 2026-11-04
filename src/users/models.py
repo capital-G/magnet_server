@@ -67,6 +67,18 @@ class CiToken(models.Model):
 
     name = models.CharField(max_length=100, verbose_name=_("Name"))
 
+    # a name, not a foreign key: the token may publish the first version, and
+    # deleting the package mustn't turn it into a token for all packages
+    package = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=_(
+            "The normalised name of the only package the token may publish; "
+            "empty for all packages of the user"
+        ),
+    )
+
     created = models.DateTimeField(auto_now_add=True)
 
     class Meta:

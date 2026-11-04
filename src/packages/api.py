@@ -75,6 +75,22 @@ class HasPublishScope(BasePermission):
         return token.allow_scopes(["publish"])
 
 
+class TokenPackageRestriction(BasePermission):
+    """A token from the tokens page may be restricted to one package
+    (`CiToken.package`); tokens of `magnet login` aren't."""
+
+    def has_permission(self, request, view) -> bool:
+        ci_token = getattr(request.auth, "ci_token", None)
+        if ci_token is None or not ci_token.package:
+            return True
+        if normalize_name(view.kwargs["name"]) == ci_token.package:
+            return True
+        self.message = (
+            f"The token {ci_token.name!r} may only publish {ci_token.package}."
+        )
+        return False
+
+
 class ArtifactSerializer(serializers.Serializer):
     """An artifact like in the index line (`GitArtifactModel`)."""
 
@@ -131,7 +147,7 @@ def version_response(release: Release, status_code=status.HTTP_200_OK) -> Respon
 
 class PublishApiView(APIView):
     authentication_classes = [BearerTokenAuthentication]
-    permission_classes = [HasPublishScope]
+    permission_classes = [HasPublishScope, TokenPackageRestriction]
 
 
 class VersionsView(PublishApiView):

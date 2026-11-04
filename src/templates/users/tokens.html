@@ -24,12 +24,13 @@
             {% endif %}
 
             <form method="post" action="{% url 'tokens' %}" class="box"
-                  hx-post="{% url 'tokens' %}" hx-target="#tokens" hx-swap="outerHTML">
+                  hx-post="{% url 'tokens' %}" hx-target="#tokens" hx-swap="outerHTML"
+                  x-data="{ scope: '{% if form.scope.value == "all" %}all{% else %}package{% endif %}', package: '{% if form.package.value in packages %}{{ form.package.value }}{% elif not form.is_bound and packages %}{{ packages.0 }}{% endif %}' }">
                 {% csrf_token %}
                 <div class="field is-grouped is-grouped-multiline">
                     <div class="control is-expanded">
                         <input class="input{% if form.name.errors %} is-danger{% endif %}" type="text" name="name" maxlength="100" required
-                               placeholder="Name, e.g. GitHub Actions of my-quark" value="{{ form.name.value|default_if_none:'' }}">
+                               placeholder="Name, e.g. GitHub Actions of my-quark" aria-label="Name" value="{{ form.name.value|default_if_none:'' }}">
                         {% for error in form.name.errors %}<p class="help is-danger">{{ error }}</p>{% endfor %}
                     </div>
                     <div class="control">
@@ -42,6 +43,49 @@
                         </div>
                         {% for error in form.days.errors %}<p class="help is-danger">{{ error }}</p>{% endfor %}
                     </div>
+                </div>
+
+                <div class="field is-grouped is-grouped-multiline is-align-items-center">
+                    <div class="control">
+                        {% for value, label in form.fields.scope.choices %}
+                            <label class="radio mr-4">
+                                <input type="radio" name="scope" value="{{ value }}" x-model="scope"{% if value == form.scope.value %} checked{% endif %}>
+                                {{ label }}
+                            </label>
+                        {% endfor %}
+                        {% for error in form.scope.errors %}<p class="help is-danger">{{ error }}</p>{% endfor %}
+                    </div>
+                    {% if packages %}
+                    <div class="control" x-show="scope === 'package'">
+                        <div class="select{% if form.package.errors %} is-danger{% endif %}">
+                            <select name="package" aria-label="Package" x-model="package">
+                                {% for package in packages %}
+                                    <option value="{{ package }}"{% if package == form.package.value %} selected{% endif %}>{{ package }}</option>
+                                {% endfor %}
+                                <option value="">New package&hellip;</option>
+                            </select>
+                        </div>
+                        {% for error in form.package.errors %}<p class="help is-danger">{{ error }}</p>{% endfor %}
+                    </div>
+                    {% endif %}
+                    <div class="control is-expanded" x-show="scope === 'package' && package === ''">
+                        <input class="input{% if form.new_package.errors %} is-danger{% endif %}" type="text" name="new_package" maxlength="255"
+                               placeholder="Name of the new package, e.g. my-quark" aria-label="Name of the new package"
+                               value="{{ form.new_package.value|default_if_none:'' }}">
+                        <p class="help">For a package that isn't published yet: the token can publish its first version, which makes you its owner.</p>
+                        {% for error in form.new_package.errors %}<p class="help is-danger">{{ error }}</p>{% endfor %}
+                        {% if not packages %}{% for error in form.package.errors %}<p class="help is-danger">{{ error }}</p>{% endfor %}{% endif %}
+                    </div>
+                </div>
+
+                <div class="notification is-warning is-light" x-show="scope === 'all'">
+                    A token for all your packages can publish new versions of <strong>every</strong> package you own or maintain,
+                    and create new packages, all in your name. Stored as a secret of a shared repository, it lets everyone who can
+                    use that secret (e.g. by changing its CI) do the same. Restrict tokens to one package where you can,
+                    and only add them to repositories of people you trust.
+                </div>
+
+                <div class="field">
                     <div class="control">
                         <button class="button is-link" type="submit">Create token</button>
                     </div>
@@ -53,6 +97,7 @@
                     <thead>
                         <tr>
                             <th>Name</th>
+                            <th>Package</th>
                             <th>Created</th>
                             <th>Expires</th>
                             <th></th>
@@ -62,6 +107,20 @@
                         {% for token in tokens %}
                             <tr>
                                 <td>{{ token.name }}</td>
+                                <td>
+                                    {% if not token.package %}
+                                        <span class="tag is-warning is-light">all packages</span>
+                                    {% else %}
+                                        {{ token.package }}
+                                        {% if token.package not in packages %}
+                                            {% if token.package in existing_packages %}
+                                                <span class="tag is-danger is-light" title="Someone else published it, the token can't publish it">not yours</span>
+                                            {% else %}
+                                                <span class="tag is-light">not published yet</span>
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endif %}
+                                </td>
                                 <td class="has-text-grey is-size-7">{{ token.created|date:"Y-m-d" }}</td>
                                 <td class="is-size-7">
                                     {% if token.access_token.expires < now %}

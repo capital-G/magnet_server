@@ -38,8 +38,9 @@ def create_access_token(user: User, days: int, scope: str) -> AccessToken:
 
 
 @transaction.atomic
-def create_ci_token(user: User, name: str, days: int) -> AccessToken:
-    """A named token with the `publish` scope, created on the website."""
+def create_ci_token(user: User, name: str, days: int, package: str = "") -> AccessToken:
+    """A named token with the `publish` scope, created on the website, for all
+    packages of `user` or only `package` (a normalised name)."""
     token = create_access_token(user, days, PUBLISH_SCOPE)
-    CiToken.objects.create(access_token=token, name=name)
+    CiToken.objects.create(access_token=token, name=name, package=package)
     return token

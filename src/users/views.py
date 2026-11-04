@@ -2,6 +2,7 @@ from django import forms
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.db.models import Count, Prefetch, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -10,6 +11,8 @@ from django.views import View
 from django.views.decorators.http import require_POST
 
 from packages.models import Project, ProjectMember, Release
+from packages.services import ensure_name_available
+from packages.validators import normalize_name, validate_name
 from users.forms import ProfileForm
 from users.models import CiToken, UserProfile
 from users.oauth import create_ci_token
@@ -31,21 +34,81 @@ class CiTokenForm(forms.Form):
         coerce=int,
         initial=365,
     )
+    scope = forms.ChoiceField(
+        choices=[("package", "One package"), ("all", "All my packages")],
+        initial="package",
+    )
+    # one of the user's packages (a select), or "" for `new_package`
+    package = forms.CharField(max_length=255, required=False)
+    new_package = forms.CharField(max_length=255, required=False)
+
+    def __init__(self, *args, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+
+    def clean(self):
+        """`package` becomes the normalised name, or `""` for all packages."""
+        cleaned = super().clean()
+        if cleaned.get("scope") != "package":
+            cleaned["package"] = ""
+            return cleaned
+        field = "package" if cleaned.get("package") else "new_package"
+        package = (cleaned.get(field) or "").strip()
+        if not package:
+            self.add_error(field, "Enter the name of the package.")
+            return cleaned
+        try:
+            validate_name(package)
+            ensure_token_can_publish(self.user, package)
+        except ValidationError as e:
+            self.add_error(field, e)
+        else:
+            cleaned["package"] = normalize_name(package)
+        return cleaned
+
+
+def ensure_token_can_publish(user, name: str) -> None:
+    """Refuses a token for a package that `user` could never publish: someone
+    else's, or a new one under a name reserved for someone else. (The API checks
+    the team on every request anyway, the token only narrows the user's rights.)"""
+    project = Project.objects.filter(normalized_name=normalize_name(name)).first()
+    if project is None:
+        ensure_name_available(name, user)
+    elif not project.can_publish(user):
+        raise ValidationError(
+            f"{project.normalized_name} is someone else's package. Its owners can "
+            "add you to its team."
+        )
 
 
 def render_tokens(request, form: CiTokenForm, new_token: str | None = None):
     """The tokens page; htmx requests get only its `tokens` partial."""
     template = "users/tokens.html"
+    tokens = list(
+        CiToken.objects.filter(access_token__user=request.user).select_related(
+            "access_token"
+        )
+    )
     return render(
         request,
         f"{template}#tokens" if request.htmx else template,
         {
             "form": form,
             "new_token": new_token,
-            "tokens": CiToken.objects.filter(
-                access_token__user=request.user
-            ).select_related("access_token"),
+            "tokens": tokens,
             "now": timezone.now(),
+            # the choices for a token for one package
+            "packages": list(
+                Project.objects.of_user(request.user)
+                .order_by("normalized_name")
+                .values_list("normalized_name", flat=True)
+            ),
+            # of the tokens' packages, to mark those someone else published since
+            "existing_packages": set(
+                Project.objects.filter(
+                    normalized_name__in={t.package for t in tokens if t.package}
+                ).values_list("normalized_name", flat=True)
+            ),
         },
     )
 
@@ -55,14 +118,17 @@ def tokens_view(request) -> HttpResponse:
     """Create and list the user's tokens for scripts and CI. A new token is shown
     only in the answer to its creation."""
     if request.method != "POST":
-        return render_tokens(request, CiTokenForm())
-    form = CiTokenForm(request.POST)
+        return render_tokens(request, CiTokenForm(user=request.user))
+    form = CiTokenForm(request.POST, user=request.user)
     if not form.is_valid():
         return render_tokens(request, form)
     token = create_ci_token(
-        request.user, form.cleaned_data["name"], form.cleaned_data["days"]
+        request.user,
+        form.cleaned_data["name"],
+        form.cleaned_data["days"],
+        form.cleaned_data["package"],
     )
-    return render_tokens(request, CiTokenForm(), new_token=token.token)
+    return render_tokens(request, CiTokenForm(user=request.user), new_token=token.token)
 
 
 @require_POST
@@ -71,7 +137,7 @@ def revoke_token_view(request, pk: int) -> HttpResponse:
     ci_token = get_object_or_404(CiToken, pk=pk, access_token__user=request.user)
     # deletes the access token, and with it the name
     ci_token.access_token.revoke()
-    return render_tokens(request, CiTokenForm())
+    return render_tokens(request, CiTokenForm(user=request.user))
 
 
 def profile_view(request, username: str) -> HttpResponse:
