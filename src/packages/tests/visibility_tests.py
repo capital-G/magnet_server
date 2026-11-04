@@ -5,7 +5,7 @@ from django.urls import reverse
 from pytest_django.asserts import assertContains, assertNotContains
 
 from packages.models import Release
-from packages.tests.factories import AssetFactory, ReleaseFactory
+from packages.tests.factories import AssetFactory, ProjectMemberFactory, ReleaseFactory
 from users.tests.factories import UserFactory
 
 
@@ -153,9 +153,9 @@ def test_others_dont_see_drafts(client, published, draft_only):
 @pytest.mark.django_db
 def test_owners_and_maintainers_see_drafts(client, published, draft_only):
     maintainer = UserFactory.create()
-    draft_only.maintainers.add(maintainer)
+    ProjectMemberFactory.create(project=draft_only, user=maintainer)
 
-    client.force_login(published.owner)
+    client.force_login(published.owners().get())
     page = client.get(detail_url(published, "2.0.0")).text
     assert "v2.0.0" in page and "draft" in page
     assert reverse("delete-draft", args=["alpha", "2.0.0"]) in page
@@ -173,7 +173,7 @@ def test_assets_of_drafts_are_hidden(client, draft_only):
     url = reverse("asset-detail", args=[asset.uuid])
 
     assert client.get(url).status_code == 404
-    client.force_login(draft_only.owner)
+    client.force_login(draft_only.owners().get())
     assert client.get(url).status_code == 200
 
 
@@ -186,7 +186,7 @@ def test_delete_draft_on_the_website(
     assert client.post(url).status_code == 302  # to the login
     client.force_login(UserFactory.create())
     assert client.post(url).status_code == 403
-    client.force_login(published.owner)
+    client.force_login(published.owners().get())
     assert client.get(url).status_code == 405
     assert client.post(
         reverse("delete-draft", args=["alpha", "1.0.0"])

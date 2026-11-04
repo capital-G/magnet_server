@@ -64,6 +64,10 @@ class ProjectQuerySet(models.QuerySet):
         to their owners and maintainers."""
         return self.filter(releases__published_at__isnull=False).distinct()
 
+    def of_user(self, user) -> "ProjectQuerySet":
+        """Projects `user` owns or maintains, also those with only drafts."""
+        return self.filter(members__user=user)
+
 
 class Project(models.Model):
     """A basic model which acts as a housing for releases.
@@ -113,20 +117,6 @@ class Project(models.Model):
         ),
     )
 
-    # should this be many-to-many?
-    owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET(get_sentinel_user),
-        related_name="projects_owned",
-    )
-
-    maintainers = models.ManyToManyField(
-        settings.AUTH_USER_MODEL,
-        help_text=_("Users who are allowed to publish releases of this project"),
-        related_name="projects_maintained",
-        blank=True,
-    )
-
     objects = ProjectQuerySet.as_manager()
 
     class Meta:
@@ -144,9 +134,21 @@ class Project(models.Model):
         super().save(*args, **kwargs)
 
     def can_publish(self, user) -> bool:
-        """Whether `user` may create, upload to, finalise and delete drafts."""
-        return user.is_authenticated and (
-            self.owner_id == user.pk or self.maintainers.filter(pk=user.pk).exists()
+        """Whether `user` may create, upload to, finalise and delete drafts, and
+        yank: owners and maintainers."""
+        return user.is_authenticated and self.members.filter(user=user).exists()
+
+    def can_manage(self, user) -> bool:
+        """Whether `user` may change the team: owners only."""
+        return (
+            user.is_authenticated
+            and self.members.filter(user=user, role=ProjectMember.Role.owner).exists()
+        )
+
+    def owners(self) -> models.QuerySet:
+        return get_user_model().objects.filter(
+            project_memberships__project=self,
+            project_memberships__role=ProjectMember.Role.owner,
         )
 
     def clean(self):
@@ -165,6 +167,52 @@ class Project(models.Model):
                     % {"name": collision.name}
                 }
             )
+
+
+class ProjectMember(models.Model):
+    """A user on the team of a project. Owners and maintainers publish; owners
+    also manage the team, which always keeps at least one owner (`packages.team`)."""
+
+    class Role(models.TextChoices):
+        owner = "owner", _("Owner")
+        maintainer = "maintainer", _("Maintainer")
+
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="members"
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="project_memberships",
+    )
+
+    role = models.CharField(max_length=20, choices=Role.choices)
+
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text=_("Who added the user; empty for the creator of the project"),
+    )
+
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("Team member")
+        verbose_name_plural = _("Team members")
+        # owners first
+        ordering = ("project", "-role", "created")
+        constraints = [
+            models.UniqueConstraint(
+                name="unique_project_member", fields=("project", "user")
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user} ({self.role} of {self.project})"
 
 
 class Dependency(models.Model):

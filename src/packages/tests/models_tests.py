@@ -55,7 +55,7 @@ def test_project_normalized_name_and_slug():
 @pytest.mark.django_db
 def test_project_name_collision():
     existing = ProjectFactory(name="ddw-common")
-    colliding = ProjectFactory.build(name="DDW_Common", owner=existing.owner)
+    colliding = ProjectFactory.build(name="DDW_Common", owner=existing.owners().get())
 
     with pytest.raises(ValidationError) as e:
         colliding.full_clean()

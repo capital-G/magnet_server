@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 from magnet.exceptions import PayloadTooLarge
 from packages.api import LengthRequired, read_upload
 from packages.models import DeletedRelease, Release
-from packages.tests.factories import ReleaseFactory
+from packages.tests.factories import ProjectMemberFactory, ReleaseFactory
 from packages.tests.services_tests import lepton_binary, lepton_source, quark, source
 from users.oauth import create_access_token
 from users.tests.factories import UserFactory
@@ -484,7 +484,7 @@ def test_foreign_final_version_of_a_maintained_package(client):
     # maintainers publish like owners
     release = ReleaseFactory.create(project__name="foo-bar", final=True)
     maintainer = Api(client)
-    release.project.maintainers.add(maintainer.user)
+    ProjectMemberFactory.create(project=release.project, user=maintainer.user)
 
     assert maintainer.draft(version="2.0.0").status_code == 201
 

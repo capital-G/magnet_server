@@ -25,6 +25,7 @@ from packages.models import (
     Dependency,
     GitDependency,
     Project,
+    ProjectMember,
     Release,
     ReservedName,
     git_index_entry,
@@ -97,6 +98,17 @@ def ensure_can_publish(user: User, project: Project) -> None:
         )
 
 
+def create_project(project: Project, owner: User) -> Project:
+    """Saves the new `project` with `owner` as its first owner."""
+    with transaction.atomic():
+        project.save()
+        ProjectMember.objects.create(
+            project=project, user=owner, role=ProjectMember.Role.owner
+        )
+    logger.info(f"Created project {project}")
+    return project
+
+
 def get_or_create_project(*, name: str, owner: User) -> Project:
     """The project with the normalized `name`, created if missing (for the
     management commands). A new project's name must not be reserved for someone
@@ -104,10 +116,9 @@ def get_or_create_project(*, name: str, owner: User) -> Project:
     project = Project.objects.filter(normalized_name=normalize_name(name)).first()
     if project is None:
         ensure_name_available(name, owner)
-        project = Project(name=name, owner=owner)
+        project = Project(name=name)
         project.full_clean()
-        project.save()
-        logger.info(f"Created project {project}")
+        create_project(project, owner)
     return project
 
 
@@ -118,18 +129,13 @@ def _project_for_draft(user: User, name: str) -> Project:
     project = Project.objects.filter(normalized_name=normalized_name).first()
     if project is None:
         ensure_name_available(name, user)
-        project = Project(name=name, owner=user)
         try:
-            with transaction.atomic():
-                project.save()
+            return create_project(Project(name=name), user)
         except IntegrityError:
             # created by a concurrent request
             project = Project.objects.filter(normalized_name=normalized_name).first()
             if project is None:
                 raise
-        else:
-            logger.info(f"Created project {project}")
-            return project
     ensure_can_publish(user, project)
     return project
 

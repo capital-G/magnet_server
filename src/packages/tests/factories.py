@@ -6,7 +6,7 @@ import factory.django
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from packages.models import ANY, Asset, Dependency, Project, Release
+from packages.models import ANY, Asset, Dependency, Project, ProjectMember, Release
 from users.tests.factories import UserFactory
 
 
@@ -108,10 +108,20 @@ def source(*extra: tuple[str, bytes] | tarfile.TarInfo, manifest=LEPTON_MANIFEST
 class ProjectFactory(factory.django.DjangoModelFactory[Project]):
     class Meta:
         model = Project
-
-    owner = factory.SubFactory(UserFactory)
+        # the hook only adds a member, the project needs no second save
+        skip_postgeneration_save = True
 
     name = factory.Sequence(lambda n: f"project-{n}")
+
+    @factory.post_generation
+    def owner(project, create, extracted, **kwargs):
+        """The first owner: `owner=user`, or a new user (`owner__username=…`)."""
+        if create:
+            ProjectMember.objects.create(
+                project=project,
+                user=extracted or UserFactory.create(**kwargs),
+                role=ProjectMember.Role.owner,
+            )
 
 
 class ReleaseFactory(factory.django.DjangoModelFactory[Release]):
@@ -149,3 +159,14 @@ class DependencyFactory(factory.django.DjangoModelFactory[Dependency]):
     release = factory.SubFactory(ReleaseFactory)
     dependency = factory.SubFactory(ProjectFactory)
     constraint = "*"
+
+
+class ProjectMemberFactory(factory.django.DjangoModelFactory[ProjectMember]):
+    """A maintainer by default."""
+
+    class Meta:
+        model = ProjectMember
+
+    project = factory.SubFactory(ProjectFactory)
+    user = factory.SubFactory(UserFactory)
+    role = ProjectMember.Role.maintainer

@@ -17,6 +17,7 @@ from packages.models import (
     Dependency,
     GitDependency,
     Project,
+    ProjectMember,
     Release,
     ReservedName,
 )
@@ -114,6 +115,14 @@ class ReleaseInlineAdmin(admin.TabularInline):
     ]
 
 
+class ProjectMemberInline(admin.TabularInline):
+    model = ProjectMember
+    extra = 0
+    fields = ["user", "role", "added_by", "created"]
+    readonly_fields = ["added_by", "created"]
+    autocomplete_fields = ["user"]
+
+
 @admin.register(Project)
 class ProjectAdmin(PermanentDeleteMixin, admin.ModelAdmin):
     delete_permanently_function = staticmethod(delete_project_permanently)
@@ -122,7 +131,7 @@ class ProjectAdmin(PermanentDeleteMixin, admin.ModelAdmin):
     list_display = [
         "name",
         "normalized_name",
-        "owner",
+        "owner_names",
     ]
 
     readonly_fields = [
@@ -131,6 +140,7 @@ class ProjectAdmin(PermanentDeleteMixin, admin.ModelAdmin):
     ]
 
     inlines = [
+        ProjectMemberInline,
         ReleaseInlineAdmin,
     ]
 
@@ -139,18 +149,22 @@ class ProjectAdmin(PermanentDeleteMixin, admin.ModelAdmin):
         "created",
     ]
 
-    filter_horizontal = [
-        "maintainers",
-    ]
-
-    autocomplete_fields = [
-        "owner",
-    ]
-
     search_fields = [
         "name",
         "normalized_name",
+        "members__user__username",
     ]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("members__user")
+
+    @admin.display(description="owners")
+    def owner_names(self, project: Project) -> str:
+        return ", ".join(
+            member.user.username
+            for member in project.members.all()
+            if member.role == ProjectMember.Role.owner
+        )
 
 
 class DependencyInline(admin.TabularInline):

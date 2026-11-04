@@ -10,10 +10,12 @@
         {{ release.license }}
     </p>
     {% endif %}
+    {% with owners=project.owners %}
     <p class="is-size-7">
-        <span class="has-text-grey">Owner</span><br>
-        {{ project.owner.username }}
+        <span class="has-text-grey">Owner{{ owners|length|pluralize }}</span><br>
+        {% for owner in owners %}{{ owner.username }}{% if not forloop.last %}, {% endif %}{% endfor %}
     </p>
+    {% endwith %}
 </div>
 
 {% if release.is_final %}

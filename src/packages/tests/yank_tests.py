@@ -9,6 +9,7 @@ from git_db.db import GitDatabase, get_git_database
 from git_db.tests.git_db_tests import commits, show
 from packages.models import Release
 from packages.services import create_draft, finalise, unyank, yank
+from packages.tests.factories import ProjectMemberFactory
 from packages.tests.services_tests import upload_quark
 from users.tests.factories import UserFactory
 
@@ -37,7 +38,7 @@ def yanked_in_index(index: GitDatabase) -> list[bool]:
 
 @pytest.mark.django_db
 def test_yank_and_unyank(index, release):
-    owner = release.project.owner
+    owner = release.project.owners().get()
 
     yank(owner, release, "broken on Windows")
     release.refresh_from_db()
@@ -59,7 +60,7 @@ def test_yank_and_unyank(index, release):
 
 @pytest.mark.django_db
 def test_yank_twice_changes_nothing(index, release):
-    owner = release.project.owner
+    owner = release.project.owners().get()
     yank(owner, release)
     before = commits(index.repo_path)
 
@@ -76,16 +77,16 @@ def test_only_owners_and_maintainers_yank(release):
     with pytest.raises(PermissionDenied):
         yank(other, release)
 
-    release.project.maintainers.add(other)
+    ProjectMemberFactory.create(project=release.project, user=other)
     yank(other, release)
     unyank(other, Release.objects.get(pk=release.pk))
 
 
 @pytest.mark.django_db
 def test_drafts_cant_be_yanked(release):
-    draft, _ = create_draft(release.project.owner, "foo-bar", "2.0.0")
+    draft, _ = create_draft(release.project.owners().get(), "foo-bar", "2.0.0")
     with pytest.raises(ValidationError, match="only final versions can be yanked"):
-        yank(release.project.owner, draft)
+        yank(release.project.owners().get(), draft)
 
 
 @pytest.mark.django_db
@@ -98,7 +99,7 @@ def test_yank_on_the_website(client, index, release):
     assert client.post(url).status_code == 403
     assert yanked_in_index(index) == [False, False]
 
-    client.force_login(release.project.owner)
+    client.force_login(release.project.owners().get())
     content = client.get(page).text
     for version in ["1.0.0", "1.1.0"]:
         assert reverse("yank", args=["foo-bar", version]) in content
@@ -117,7 +118,7 @@ def test_yank_on_the_website(client, index, release):
     assert "Yanked: broken on Windows" in content
     assert reverse("unyank", args=["foo-bar", "1.0.0"]) not in content
 
-    client.force_login(release.project.owner)
+    client.force_login(release.project.owners().get())
     response = client.post(reverse("unyank", args=["foo-bar", "1.0.0"]))
     assert response.status_code == 302
     assert yanked_in_index(index) == [False, False]
@@ -125,14 +126,14 @@ def test_yank_on_the_website(client, index, release):
 
 @pytest.mark.django_db
 def test_yank_without_htmx_takes_the_reason_from_the_form(client, release):
-    client.force_login(release.project.owner)
+    client.force_login(release.project.owners().get())
     client.post(reverse("yank", args=["foo-bar", "1.0.0"]), {"reason": " old "})
     assert Release.objects.get(pk=release.pk).yanked_reason == "old"
 
 
 @pytest.mark.django_db
 def test_yank_of_a_draft_on_the_website(client, release):
-    owner = release.project.owner
+    owner = release.project.owners().get()
     create_draft(owner, "foo-bar", "2.0.0")
     client.force_login(owner)
 

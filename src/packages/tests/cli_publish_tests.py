@@ -81,7 +81,7 @@ def test_magnet_publish(live_server, tmp_path):
 
     release = Release.objects.select_related("project").get()
     assert release.is_final and release.project.name == "Foo_Bar"
-    assert release.project.owner == user
+    assert release.project.owners().get() == user
     [line] = show(get_git_database().repo_path, "f/foo-bar.jsonl").splitlines()
     assert json.loads(line)["kinds"] == ["quark"]
     # the CLI uploads the source first

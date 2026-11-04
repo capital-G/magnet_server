@@ -20,7 +20,7 @@ from packages.services import (
     delete_draft,
     finalise,
 )
-from packages.tests.factories import ReleaseFactory, tar_gz
+from packages.tests.factories import ProjectMemberFactory, ReleaseFactory, tar_gz
 from users.tests.factories import UserFactory
 
 SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -160,7 +160,7 @@ def test_quark_from_draft_to_final(index, user, alpha):
     release, created = create_draft(user, "foo-bar", "1.0.0")
     assert created and not release.is_final
     project = release.project
-    assert (project.name, project.owner) == ("foo-bar", user)
+    assert (project.name, project.owners().get()) == ("foo-bar", user)
 
     asset, created = upload(user, release, data)
     assert created
@@ -705,7 +705,7 @@ def test_only_owners_and_maintainers_publish(index, user):
     with pytest.raises(PermissionDenied):
         delete_draft(other, release)
 
-    release.project.maintainers.add(other)
+    ProjectMemberFactory.create(project=release.project, user=other)
     upload_quark(other, release)
     finalise(other, release)
     assert create_draft(other, "foo-bar", "1.0.1")[1]
@@ -731,7 +731,7 @@ def test_invalid_drafts(user, name, version, error):
 def test_claimed_name(user):
     ReservedName.objects.filter(normalized_name="wslib").update(claimed_by=user)
     release, created = create_draft(user, "wslib", "1.0.0")
-    assert created and release.project.owner == user
+    assert created and release.project.owners().get() == user
 
 
 @pytest.mark.django_db
@@ -814,7 +814,7 @@ def test_concurrent_drafts_of_a_version(user, monkeypatch):
 @pytest.mark.django_db
 def test_concurrent_new_package(user, monkeypatch):
     def concurrent_request(name, user):
-        Project.objects.create(name="Foo_Bar", owner=user)
+        services.create_project(Project(name="Foo_Bar"), user)
 
     monkeypatch.setattr(services, "ensure_name_available", concurrent_request)
     release, created = create_draft(user, "foo-bar", "1.0.0")
