@@ -28,6 +28,11 @@ from rest_framework_nested import routers
 
 from magnet.views import ApiNotFoundView, VersionApiView
 from packages.api import ArtifactView, FinaliseView, VersionsView, VersionView
+from packages.classes_api import (
+    ClassCheckView,
+    ClassSearchView,
+    PackageConflictsView,
+)
 from packages.views import ProjectViewSet, serve_artifact, serve_index_mirror
 
 router = routers.DefaultRouter()
@@ -56,6 +61,13 @@ urlpatterns = [
         "api/v1/packages/<str:name>/versions/<str:version>/finalise/",
         FinaliseView.as_view(),
         name="api-finalise",
+    ),
+    path("api/v1/classes/", ClassSearchView.as_view(), name="api-classes"),
+    path("api/v1/classes/check/", ClassCheckView.as_view(), name="api-class-check"),
+    path(
+        "api/v1/packages/<str:name>/conflicts/",
+        PackageConflictsView.as_view(),
+        name="api-conflicts",
     ),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),

@@ -5,6 +5,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from django.core.files import File
 from django.db import transaction
 from django.db.models import Case, IntegerField, Value, When
 from django.tasks import task
@@ -24,48 +25,61 @@ from packages.sclang import compiled_folder, parse
 logger = logging.getLogger(__name__)
 
 
+# a class or extension with its methods, saved or not
+Definition = tuple[ClassDefinition, list[MethodDefinition]]
+
+
+def read_class_files(file: File) -> tuple[list[Definition], list[ClassFileError]]:
+    """The classes (unsaved, without release) of the `.sc` files in an archive which
+    sclang compiles on any platform or IDE (`compiled_folder`); each class remembers
+    its platform folder. Also the files that don't parse."""
+    definitions: list[Definition] = []
+    errors: list[ClassFileError] = []
+    platforms: dict[str, str] = {}
+
+    def wanted(path: str) -> bool:
+        folder = compiled_folder(path, platform=None, ide=None)
+        if folder is not None:
+            platforms[path] = folder
+        return folder is not None
+
+    for path, data in read_files(file, wanted):
+        # sclang reads bytes; anything that isn't ASCII only matters in strings
+        parsed = parse(data.decode("utf-8", errors="replace"))
+        if parsed.error:
+            errors.append(ClassFileError(path=path, message=parsed.error))
+        for c in parsed.classes:
+            definition = ClassDefinition(
+                name=c.name,
+                superclass=c.superclass,
+                is_extension=c.is_extension,
+                path=path,
+                line=c.line,
+                platform=platforms[path],
+            )
+            methods = [
+                MethodDefinition(
+                    class_definition=definition,
+                    name=m.name,
+                    is_class_method=m.is_class_method,
+                )
+                for m in c.methods
+            ]
+            definitions.append((definition, methods))
+    return definitions, errors
+
+
 def extract_classes(release: Release) -> None:
-    """Replaces the classes of `release` with those of its quark artifact. All
-    platform and IDE folders count (`compiled_folder`), each class remembers its
-    platform folder."""
-    definitions: list[tuple[ClassDefinition, list[MethodDefinition]]] = []
+    """Replaces the classes of `release` with those of its quark artifact."""
+    definitions: list[Definition] = []
     errors: list[ClassFileError] = []
     quark = release.assets.filter(kind=Asset.Kind.quark).first()
     if quark is not None:
-        platforms: dict[str, str] = {}
-
-        def wanted(path: str) -> bool:
-            folder = compiled_folder(path, platform=None, ide=None)
-            if folder is not None:
-                platforms[path] = folder
-            return folder is not None
-
-        for path, data in read_files(quark.file, wanted):
-            # sclang reads bytes; anything that isn't ASCII only matters in strings
-            parsed = parse(data.decode("utf-8", errors="replace"))
-            if parsed.error:
-                errors.append(
-                    ClassFileError(release=release, path=path, message=parsed.error)
-                )
-            for c in parsed.classes:
-                definition = ClassDefinition(
-                    release=release,
-                    name=c.name,
-                    superclass=c.superclass,
-                    is_extension=c.is_extension,
-                    path=path,
-                    line=c.line,
-                    platform=platforms[path],
-                )
-                methods = [
-                    MethodDefinition(
-                        class_definition=definition,
-                        name=m.name,
-                        is_class_method=m.is_class_method,
-                    )
-                    for m in c.methods
-                ]
-                definitions.append((definition, methods))
+        definitions, errors = read_class_files(quark.file)
+    for definition, _ in definitions:
+        definition.release = release
+    for error in errors:
+        error.release = release
     with transaction.atomic():
         release.class_definitions.all().delete()
         release.class_file_errors.all().delete()
@@ -133,29 +147,30 @@ def _same_platform(a: ClassDefinition, b: ClassDefinition) -> bool:
     return not (a.platform and b.platform and a.platform != b.platform)
 
 
-def conflicts(release: Release) -> list[NameConflict]:
-    """The conflicts of `release` with the current versions of the other packages,
-    sorted by kind, name and package."""
-    own = list(release.class_definitions.prefetch_related("methods"))
+def find_conflicts(
+    own: list[Definition], exclude_project_id: object = None
+) -> list[NameConflict]:
+    """The conflicts of the classes `own` with the current versions of the other
+    packages (all but `exclude_project_id`), sorted by kind, name and package."""
     if not own:
         return []
     others = (
         ClassDefinition.objects.current()
-        .exclude(release__project_id=release.project_id)
-        .filter(name__in={c.name for c in own})
+        .exclude(release__project_id=exclude_project_id)
+        .filter(name__in={definition.name for definition, _ in own})
         .select_related("release__project")
         .prefetch_related("methods")
     )
     found: set[NameConflict] = set()
     for other in others:
-        for mine in own:
+        for mine, methods in own:
             if mine.name != other.name or not _same_platform(mine, other):
                 continue
             if not mine.is_extension and not other.is_extension:
                 found.add(NameConflict("class", mine.name, "", False, other.release))
             elif mine.is_extension and other.is_extension:
                 theirs = {(m.name, m.is_class_method) for m in other.methods.all()}
-                for method in mine.methods.all():
+                for method in methods:
                     if (method.name, method.is_class_method) in theirs:
                         found.add(
                             NameConflict(
@@ -177,6 +192,16 @@ def conflicts(release: Release) -> list[NameConflict]:
     )
 
 
+def conflicts(release: Release) -> list[NameConflict]:
+    """The conflicts of `release` (a version of a package) with the current
+    versions of the other packages."""
+    own = [
+        (definition, list(definition.methods.all()))
+        for definition in release.class_definitions.prefetch_related("methods")
+    ]
+    return find_conflicts(own, release.project_id)
+
+
 @dataclass
 class PackageConflicts:
     """The conflicts with one other package, for a short summary per package (a
@@ -187,17 +212,22 @@ class PackageConflicts:
     methods: list[NameConflict]
 
 
-def conflicts_by_package(release: Release) -> list[PackageConflicts]:
-    """`conflicts(release)` grouped by the other package, by its name."""
+def group_by_package(found: list[NameConflict]) -> list[PackageConflicts]:
+    """`found` grouped by the other package, by its name."""
     # one current version per package
     groups: dict[str, PackageConflicts] = {}
-    for conflict in conflicts(release):
+    for conflict in found:
         group = groups.setdefault(
             conflict.other.project.normalized_name,
             PackageConflicts(conflict.other, [], []),
         )
         (group.classes if conflict.kind == "class" else group.methods).append(conflict)
     return [groups[name] for name in sorted(groups)]
+
+
+def conflicts_by_package(release: Release) -> list[PackageConflicts]:
+    """`conflicts(release)` grouped by the other package."""
+    return group_by_package(conflicts(release))
 
 
 @dataclass
