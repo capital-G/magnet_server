@@ -20,6 +20,9 @@
     <div class="container">
         <div class="navbar-brand">
             <a class="navbar-item has-text-weight-bold is-size-5" href="{% url 'home' %}">magnet</a>
+            {# in the brand, not navbar-start, so they stay visible on mobile (outside the burger menu) #}
+            <a class="navbar-item" href="{% url 'projects-list' %}">Browse</a>
+            <a class="navbar-item" href="{% url 'class-search' %}">Classes</a>
             <a role="button" class="navbar-burger" aria-label="menu" :aria-expanded="menu"
                :class="{ 'is-active': menu }" @click="menu = !menu">
                 <span aria-hidden="true"></span>
@@ -29,10 +32,6 @@
             </a>
         </div>
         <div class="navbar-menu" :class="{ 'is-active': menu }">
-            <div class="navbar-start">
-                <a class="navbar-item" href="{% url 'projects-list' %}">Browse</a>
-                <a class="navbar-item" href="{% url 'class-search' %}">Classes</a>
-            </div>
             <div class="navbar-end">
                 {% if user.is_authenticated %}
                     <div class="navbar-item has-dropdown" x-data="{ open: false }"
