@@ -21,6 +21,7 @@ from packages.models import (
     ReservedName,
 )
 from packages.services import finalise_release
+from packages.validators import RELEASE_KINDS
 
 
 def run_index_action[T: Model](
@@ -219,6 +220,22 @@ class ReleaseStateFilter(admin.SimpleListFilter):
             }
 
 
+class ReleaseKindFilter(admin.SimpleListFilter):
+    """Versions which declare a kind. `kinds` is a JSON list and sqlite has no JSON
+    contains, but no kind name is a substring of another."""
+
+    title = "kind"
+    parameter_name = "kind"
+
+    def lookups(self, request, model_admin):
+        return [(kind, kind) for kind in RELEASE_KINDS]
+
+    def queryset(self, request, queryset):
+        if self.value() in RELEASE_KINDS:
+            return queryset.filter(kinds__icontains=self.value())
+        return queryset
+
+
 @admin.register(Release)
 class ReleaseAdmin(PermanentDeleteMixin, admin.ModelAdmin):
     delete_permanently_function = staticmethod(delete_release_permanently)
@@ -251,6 +268,7 @@ class ReleaseAdmin(PermanentDeleteMixin, admin.ModelAdmin):
 
     list_filter = [
         ReleaseStateFilter,
+        ReleaseKindFilter,
         "created",
         "last_update",
         "yanked",

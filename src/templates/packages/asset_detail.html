@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}{{ asset.identifier }} &mdash; magnet{% endblock %}
-{% block description %}{{ asset.release.project.get_kind_display }} artifact for {{ asset.release.project.name }} v{{ asset.release.version }}{% endblock %}
+{% block description %}{{ asset.get_kind_display }} artifact for {{ asset.release.project.name }} v{{ asset.release.version }}{% endblock %}
 
 {% block content %}
 
@@ -15,7 +15,7 @@
             <strong class="is-size-4 is-family-monospace">{{ asset.identifier }}</strong>
         </p>
         <div class="tags">
-            <span class="tag is-link is-light">{{ asset.release.project.get_kind_display }}</span>
+            <span class="tag is-link is-light">{{ asset.kind }}</span>
             <span class="tag">ABI {{ asset.abi }}</span>
             <span class="tag">Platform {{ asset.platform }}</span>
         </div>

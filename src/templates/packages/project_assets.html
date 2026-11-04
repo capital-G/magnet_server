@@ -4,6 +4,7 @@
     <thead>
         <tr>
             <th>Filename</th>
+            <th>Kind</th>
             <th>ABI</th>
             <th>Platform</th>
         </tr>
@@ -15,6 +16,7 @@
                 <a href="{{ asset.file.url }}">{{ asset.identifier }}</a>
                 <a class="has-text-grey is-size-7 ml-2" href="{% url 'asset-detail' asset.uuid %}">[details]</a>
             </td>
+            <td>{{ asset.kind }}</td>
             <td>{{ asset.abi }}</td>
             <td>{{ asset.platform }}</td>
         </tr>

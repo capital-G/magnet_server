@@ -2,6 +2,7 @@
     <thead>
         <tr>
             <th>Version</th>
+            <th>Kinds</th>
             <th>Released</th>
             <th>Notes</th>
         </tr>
@@ -39,6 +40,11 @@
                         </button>
                     {% endif %}
                 {% endif %}
+            </td>
+            <td>
+                {% for kind in release.kinds %}
+                    <span class="tag is-small">{{ kind }}</span>
+                {% endfor %}
             </td>
             <td class="has-text-grey is-size-7">{{ release.created|timesince }} ago</td>
             <td class="has-text-grey is-size-7">{{ release.release_note|truncatechars:80 }}</td>

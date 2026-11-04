@@ -2,6 +2,7 @@
 
 import pytest
 from django.urls import reverse
+from pytest_django.asserts import assertContains, assertNotContains
 
 from packages.models import Release
 from packages.tests.factories import AssetFactory, ReleaseFactory
@@ -56,6 +57,64 @@ def test_api_shows_the_kinds_of_the_latest_final_version(client, published):
         ("1.1.0", ["quark", "lepton"]),
         ("1.0.0", ["quark"]),
     ]
+
+
+@pytest.fixture
+def quark_and_lepton(published):
+    """1.1.0 of `published` adds a lepton to the quark of 1.0.0."""
+    release = ReleaseFactory.create(
+        project=published, version="1.1.0", kinds=["quark", "lepton"], final=True
+    )
+    for kind, abi, platform in [
+        ("source", "any", "any"),
+        ("quark", "any", "any"),
+        ("lepton", "api3_0", "macos_arm64"),
+    ]:
+        AssetFactory.create(release=release, kind=kind, abi=abi, platform=platform)
+    return release
+
+
+def tag(kind, classes="tag"):
+    return f'<span class="{classes}">{kind}</span>'
+
+
+@pytest.mark.django_db
+def test_pages_show_the_kinds_of_each_version(client, published, quark_and_lepton):
+    page = client.get(detail_url(published))
+    # the header and the versions table
+    assertContains(page, tag("lepton", "tag is-link is-light"), html=True)
+    assertContains(page, tag("lepton", "tag is-small"), count=1, html=True)
+    assertContains(page, tag("quark", "tag is-small"), count=2, html=True)
+    # the artifacts table
+    for kind in ["source", "quark", "lepton"]:
+        assertContains(page, f"<td>{kind}</td>", count=1, html=True)
+
+    page = client.get(detail_url(published, "1.0.0"))
+    assertContains(page, tag("quark", "tag is-link is-light"), html=True)
+    assertNotContains(page, tag("lepton", "tag is-link is-light"), html=True)
+
+    # the kinds of the latest final version, not of the draft 2.0.0
+    listing = client.get(reverse("projects-list"))
+    assertContains(listing, tag("quark"), count=1, html=True)
+    assertContains(listing, tag("lepton"), count=1, html=True)
+
+    lepton = quark_and_lepton.assets.get(kind="lepton")
+    page = client.get(reverse("asset-detail", args=[lepton.uuid]))
+    assertContains(page, tag("lepton", "tag is-link is-light"), html=True)
+    assertContains(page, "Lepton artifact for alpha v1.1.0")
+
+
+@pytest.mark.django_db
+def test_admin_filters_versions_by_kind(admin_client, published, quark_and_lepton):
+    url = reverse("admin:packages_release_changelist")
+
+    def versions(query):
+        response = admin_client.get(url + query)
+        return [str(r.version) for r in response.context["cl"].result_list]
+
+    assert versions("?kind=lepton") == ["1.1.0"]
+    assert versions("?kind=quark") == ["1.1.0", "1.0.0"]
+    assert versions("?kind=lepton&state=all") == ["1.1.0"]
 
 
 @pytest.mark.django_db
