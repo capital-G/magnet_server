@@ -67,6 +67,40 @@ def request_build(release: Release) -> DocBuild | None:
     return build
 
 
+def update_docs(project: Project) -> None:
+    """After the versions of `project` changed (finalised, yanked, un-yanked, deleted):
+    builds the docs of the current version unless its latest build is for it already
+    (also a failed one, rebuilding is up to `rebuild`; a built one only while its docs
+    are published), removes them if no version is left. Nothing without
+    `MAGNET_DOCS_BUILDS`."""
+    if not settings.MAGNET_DOCS_BUILDS:
+        return
+    current = current_release(project)
+    if current is None:
+        name = project.normalized_name
+        transaction.on_commit(lambda: publish.unpublish(name))
+        return
+    latest = (
+        DocBuild.objects.filter(release__project=project)
+        .exclude(status=DocBuild.Status.skipped)
+        .order_by("-created_at", "-pk")
+        .first()
+    )
+    if latest is not None and latest.release_id == current.pk:
+        # built docs are gone if no version was left meanwhile (yank, un-yank)
+        built = latest.status == DocBuild.Status.built
+        if not built or publish.published_dir(project.normalized_name) is not None:
+            return
+    request_build(current)
+
+
+def rebuild(project: Project) -> DocBuild | None:
+    """Builds the docs of the current version again (admin, `build_docs`); None if
+    the package has none or builds are off."""
+    current = current_release(project)
+    return request_build(current) if current is not None else None
+
+
 @task(queue_name="docs")
 def build_docs_task(build_id: int) -> None:
     build = (

@@ -12,6 +12,8 @@ from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.db import transaction
 
+from docs.publish import unpublish
+from docs.tasks import update_docs
 from git_db.db import get_git_database
 from packages.models import DeletedRelease, Dependency, Project, Release, ReservedName
 
@@ -60,7 +62,9 @@ def delete_release_permanently(release: Release, reason: str) -> None:
             normalized_name=name, version=version, reason=reason
         )
         was_final = release.is_final
+        project = release.project
         release.delete()
+        update_docs(project)
         # last, so a failed index write rolls the database back
         if was_final:
             get_git_database().remove_release(name, version)
@@ -102,4 +106,6 @@ def delete_project_permanently(project: Project, reason: str) -> None:
         if had_final:
             get_git_database().remove_package(name)
         transaction.on_commit(lambda: _remove_artifacts(paths))
+        # its builds went with the versions
+        transaction.on_commit(lambda: unpublish(name))
     logger.info(f"Deleted {name} permanently: {reason}")

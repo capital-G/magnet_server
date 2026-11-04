@@ -24,6 +24,7 @@ nginx also serves a static HTTP mirror of the index (`/index/`: `config.json`, `
 | `nginx`      | <http://localhost:8080/index/…>            | static HTTP mirror of the index       |
 | `git_daemon` | `git://localhost:9418/magnet_index.git`    | the index                             |
 | `git_web`    | <http://localhost:8081>                    | the index in gitweb                   |
+| `nginx`      | <http://localhost:8082/<name>/>            | the docs of the packages              |
 | `database`   | `localhost:5432`                           | postgres                              |
 | `worker`     |                                            | background tasks (class extraction)   |
 | `docs_worker`|                                            | docs builds (needs `make docs-builder`) |
@@ -57,6 +58,9 @@ Uploads are limited to 50 MB (`MAGNET_MAX_UPLOAD_SIZE`); a proxy in front of Dja
 
 `make docs-builder` builds the image `magnet-docs-builder:sc3.14.1` (`docs_builder/`): a headless SuperCollider and the magnet CLI, both compiled from source (SuperCollider takes a while, once).
 The service `docs_worker` builds docs with it (queue `docs`): it starts the build containers through the engine's socket (`MAGNET_DOCS_SOCKET`, default podman machine's `/run/podman/podman.sock`; Docker: `/var/run/docker.sock`) and publishes them to `docs/<name>` in the `artifacts` volume.
+Finalising a version that becomes the package's current one queues its build, so do yanks, un-yanks and hard deletes that change the current version (no version left: the docs are removed).
+`python manage.py build_docs NAME … | --all` and the admin action "Rebuild the docs" queue builds by hand.
+nginx serves the docs on their own port (`NGINX_DOCS_PORT`, default 8082), in production a host of its own (`MAGNET_DOCS_BASE_URL`); runserver serves them at `/docs/` (`settings_local`).
 `scripts/build_docs.sh` builds the docs of one package by hand:
 
 ```shell

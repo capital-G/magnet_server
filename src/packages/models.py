@@ -524,6 +524,7 @@ class Release(models.Model):
         self.yanked = True
         self.yanked_reason = reason
         self.save(update_fields=["yanked", "yanked_reason"])
+        self._update_docs()
 
     def unyank_git_entry(self):
         from git_db.db import get_git_database
@@ -532,6 +533,13 @@ class Release(models.Model):
         self.yanked = False
         self.yanked_reason = ""
         self.save(update_fields=["yanked", "yanked_reason"])
+        self._update_docs()
+
+    def _update_docs(self):
+        """The current version may have changed (docs_plan.md)."""
+        from docs.tasks import update_docs
+
+        update_docs(self.project)
 
 
 class Asset(models.Model):

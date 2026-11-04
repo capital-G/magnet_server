@@ -26,6 +26,7 @@ from drf_spectacular.views import (
 from oauth2_provider import urls as oauth2_urls
 from rest_framework_nested import routers
 
+from docs.views import serve_docs
 from magnet.views import ApiNotFoundView, VersionApiView
 from packages.api import ArtifactView, FinaliseView, VersionsView, VersionView
 from packages.classes_api import (
@@ -85,9 +86,10 @@ urlpatterns = [
 ]
 
 if settings.DEBUG:
-    # artifact downloads and the index mirror for runserver; deployments serve them
-    # via nginx
+    # artifact downloads, the index mirror and the docs for runserver; deployments
+    # serve them via nginx
     urlpatterns += [
         re_path(r"^dl/(?P<path>.*)$", serve_artifact),
         re_path(r"^index/(?P<path>.*)$", serve_index_mirror),
+        re_path(r"^docs/(?P<path>.*)$", serve_docs),
     ]

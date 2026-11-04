@@ -2,12 +2,14 @@ from collections.abc import Callable, Iterable
 from typing import Any
 
 from django import forms
+from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.admin import helpers
 from django.core.exceptions import ValidationError
 from django.db.models import Model, QuerySet
 from django.template.response import TemplateResponse
 
+from docs.tasks import rebuild
 from git_db.db import GitCommandError
 from git_db.files import IndexWriteError
 from packages.deletion import delete_project_permanently, delete_release_permanently
@@ -129,7 +131,7 @@ class ProjectMemberInline(admin.TabularInline):
 @admin.register(Project)
 class ProjectAdmin(PermanentDeleteMixin, admin.ModelAdmin):
     delete_permanently_function = staticmethod(delete_project_permanently)
-    actions = ["delete_permanently"]
+    actions = ["delete_permanently", "rebuild_docs"]
 
     list_display = [
         "name",
@@ -162,6 +164,16 @@ class ProjectAdmin(PermanentDeleteMixin, admin.ModelAdmin):
         return super().get_queryset(request).prefetch_related("members__user")
 
     @admin.display(description="owners")
+    @admin.action(description="Rebuild the docs (current version)")
+    def rebuild_docs(self, request, queryset: QuerySet[Project]):
+        if not settings.MAGNET_DOCS_BUILDS:
+            self.message_user(request, "Docs builds are off.", messages.WARNING)
+            return
+        queued = [project for project in queryset if rebuild(project) is not None]
+        self.message_user(
+            request, f"Queued the docs of {len(queued)} of {queryset.count()} packages."
+        )
+
     def owner_names(self, project: Project) -> str:
         return ", ".join(
             member.user.username
