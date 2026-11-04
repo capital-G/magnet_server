@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}Team of {{ project.name }} - magnet{% endblock %}
+
+{% block content %}
+<div class="page-header py-5">
+    <div class="container">
+        <p class="is-size-7 has-text-grey mb-2">
+            <a href="{% url 'project-detail' project.slug %}">{{ project.name }}</a> /
+        </p>
+        <p class="is-size-3 has-text-weight-bold">Team</p>
+    </div>
+</div>
+
+<section class="section pt-5">
+    <div class="container">
+        <p class="mb-5">
+            Owners and maintainers publish versions, yank them and delete drafts.
+            Owners also manage the team. A package always keeps at least one owner.
+        </p>
+
+        {% partialdef team inline %}
+        <div id="team">
+            {% if error %}
+                <div class="notification is-danger">{{ error }}</div>
+            {% endif %}
+
+            {% if can_manage %}
+            <form method="post" action="{% url 'team' project.slug %}" class="box"
+                  hx-post="{% url 'team' project.slug %}" hx-target="#team" hx-swap="outerHTML">
+                {% csrf_token %}
+                <div class="field is-grouped is-grouped-multiline">
+                    <div class="control is-expanded">
+                        <input class="input{% if form.username.errors %} is-danger{% endif %}" type="text" name="username" maxlength="150" required
+                               placeholder="Username" aria-label="Username" value="{{ form.username.value|default_if_none:'' }}">
+                        {% for error in form.username.errors %}<p class="help is-danger">{{ error }}</p>{% endfor %}
+                    </div>
+                    <div class="control">
+                        <div class="select">
+                            <select name="role" aria-label="Role">
+                                {% for value, label in roles %}
+                                    <option value="{{ value }}"{% if value == form.role.value %} selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="control">
+                        <button class="button is-link" type="submit">Add</button>
+                    </div>
+                </div>
+            </form>
+            {% endif %}
+
+            <table class="table is-fullwidth">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Added</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for member in members %}
+                        <tr>
+                            <td>
+                                {{ member.user.username }}
+                                {% if member.user == request.user %}<span class="tag is-light ml-1">you</span>{% endif %}
+                            </td>
+                            <td>
+                                {% if can_manage %}
+                                    <form method="post" action="{% url 'team-role' project.slug member.pk %}"
+                                          hx-post="{% url 'team-role' project.slug member.pk %}" hx-trigger="change"
+                                          hx-target="#team" hx-swap="outerHTML">
+                                        {% csrf_token %}
+                                        <div class="select is-small">
+                                            <select name="role" aria-label="Role of {{ member.user.username }}">
+                                                {% for value, label in roles %}
+                                                    <option value="{{ value }}"{% if value == member.role %} selected{% endif %}>{{ label }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                        <noscript><button class="button is-small" type="submit">Change</button></noscript>
+                                    </form>
+                                {% else %}
+                                    {{ member.get_role_display }}
+                                {% endif %}
+                            </td>
+                            <td class="has-text-grey is-size-7">
+                                {{ member.created|date:"Y-m-d" }}{% if member.added_by %} by {{ member.added_by.username }}{% endif %}
+                            </td>
+                            <td class="has-text-right">
+                                {% if member.user == request.user %}
+                                    <form method="post" action="{% url 'team-remove' project.slug member.pk %}"
+                                          hx-post="{% url 'team-remove' project.slug member.pk %}" hx-target="#team" hx-swap="outerHTML"
+                                          hx-confirm="Leave the team of {{ project.name }}? You can't publish it anymore.">
+                                        {% csrf_token %}
+                                        <button class="button is-small is-danger is-light" type="submit">Leave</button>
+                                    </form>
+                                {% elif can_manage %}
+                                    <form method="post" action="{% url 'team-remove' project.slug member.pk %}"
+                                          hx-post="{% url 'team-remove' project.slug member.pk %}" hx-target="#team" hx-swap="outerHTML"
+                                          hx-confirm="Remove {{ member.user.username }} from the team of {{ project.name }}?">
+                                        {% csrf_token %}
+                                        <button class="button is-small is-danger is-light" type="submit">Remove</button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endpartialdef %}
+    </div>
+</section>
+{% endblock %}

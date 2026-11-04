@@ -1,13 +1,24 @@
 """The team of a package: owners and maintainers (`ProjectMember`)."""
 
+from types import SimpleNamespace
+
 import pytest
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import AnonymousUser, User
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
+from django.urls import reverse
+from pytest_django.asserts import assertContains, assertNotContains
 
 from packages.models import Project, ProjectMember
 from packages.services import create_draft, get_or_create_project
-from packages.tests.factories import ProjectFactory, ProjectMemberFactory
+from packages.team import add_member, remove_member, set_role
+from packages.tests.factories import (
+    ProjectFactory,
+    ProjectMemberFactory,
+    ReleaseFactory,
+)
+from packages.tests.publish_api_tests import Api
 from users.tests.factories import UserFactory
 
 
@@ -107,3 +118,213 @@ def test_migration_copies_owner_and_maintainers():
 
     executor.loader.build_graph()
     executor.migrate(executor.loader.graph.leaf_nodes())
+
+
+@pytest.fixture
+def team():
+    """foo-bar with the owner `olivia` and the maintainer `max`."""
+    owner = UserFactory.create(username="olivia")
+    maintainer = UserFactory.create(username="max")
+    project = ProjectFactory.create(name="foo-bar", owner=owner)
+    ProjectMemberFactory.create(project=project, user=maintainer)
+    return SimpleNamespace(project=project, owner=owner, maintainer=maintainer)
+
+
+def member(project, user):
+    return project.members.get(user=user)
+
+
+def roles(project):
+    return {m.user.username: m.role for m in project.members.select_related("user")}
+
+
+@pytest.mark.django_db
+def test_owners_add_members(team, bob):
+    added = add_member(team.owner, team.project, "Bob ", "owner")
+    UserFactory.create(username="carol")
+    add_member(team.owner, team.project, "carol", "maintainer")
+
+    assert (added.user, added.added_by) == (
+        User.objects.get(username="bob"),
+        team.owner,
+    )
+    assert roles(team.project) == {
+        "olivia": "owner",
+        "max": "maintainer",
+        "bob": "owner",
+        "carol": "maintainer",
+    }
+
+
+@pytest.fixture
+def bob():
+    return UserFactory.create(username="bob")
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("bob")
+@pytest.mark.parametrize(
+    "username, role, error",
+    [
+        ("nobody", "maintainer", "There is no user nobody."),
+        ("MAX", "owner", "max is already on the team of foo-bar as maintainer."),
+        ("olivia", "maintainer", "olivia is already on the team of foo-bar as owner."),
+        ("bob", "admin", "Unknown role admin."),
+    ],
+)
+def test_add_member_refuses(team, username, role, error):
+    with pytest.raises(ValidationError) as e:
+        add_member(team.owner, team.project, username, role)
+    assert e.value.messages == [error]
+
+
+@pytest.mark.django_db
+def test_only_owners_manage_the_team(team, bob):
+    stranger = UserFactory.create()
+    owner = member(team.project, team.owner)
+    for user in [team.maintainer, stranger, AnonymousUser()]:
+        with pytest.raises(PermissionDenied):
+            add_member(user, team.project, "bob", "maintainer")
+        with pytest.raises(PermissionDenied):
+            set_role(user, owner, "maintainer")
+        with pytest.raises(PermissionDenied):
+            remove_member(user, owner)
+    assert roles(team.project) == {"olivia": "owner", "max": "maintainer"}
+
+
+@pytest.mark.django_db
+def test_set_role(team):
+    set_role(team.owner, member(team.project, team.maintainer), "owner")
+    # with a second owner, the first may step down
+    set_role(team.owner, member(team.project, team.owner), "maintainer")
+
+    assert roles(team.project) == {"olivia": "maintainer", "max": "owner"}
+
+
+@pytest.mark.django_db
+def test_the_last_owner_stays(team):
+    owner = member(team.project, team.owner)
+    message = "foo-bar needs at least one owner, add another owner first."
+
+    for change in [
+        lambda: set_role(team.owner, owner, "maintainer"),
+        lambda: remove_member(team.owner, owner),
+    ]:
+        with pytest.raises(ValidationError) as e:
+            change()
+        assert e.value.messages == [message]
+    # an owner may set the owner role again
+    set_role(team.owner, owner, "owner")
+    assert roles(team.project) == {"olivia": "owner", "max": "maintainer"}
+
+
+@pytest.mark.django_db
+def test_remove_and_leave(team, bob):
+    add_member(team.owner, team.project, "bob", "maintainer")
+
+    remove_member(team.owner, member(team.project, bob))
+    # maintainers leave themselves
+    remove_member(team.maintainer, member(team.project, team.maintainer))
+
+    assert roles(team.project) == {"olivia": "owner"}
+
+
+@pytest.mark.django_db
+def test_a_new_maintainer_publishes_through_the_api(client, team, bob):
+    api = Api(client, user=bob)
+    ReleaseFactory.create(project=team.project, version="1.0.0", final=True)
+    assert api.draft(version="2.0.0").status_code == 403
+
+    add_member(team.owner, team.project, "bob", "maintainer")
+
+    assert api.draft(version="2.0.0").status_code == 201
+
+
+@pytest.mark.django_db
+def test_team_page_access(client, team):
+    url = reverse("team", args=["foo-bar"])
+
+    assert client.get(url).status_code == 302  # to the login
+    client.force_login(UserFactory.create())
+    assert client.get(url).status_code == 403
+
+    client.force_login(team.maintainer)
+    page = client.get(url)
+    assertContains(page, "olivia")
+    assertContains(page, "Leave")
+    # maintainers see the team, owners change it
+    assertNotContains(page, 'name="username"')
+    assertNotContains(page, "Remove")
+    assert client.post(url, {"username": "bob", "role": "owner"}).status_code == 403
+
+    client.force_login(team.owner)
+    page = client.get(url)
+    assertContains(page, 'name="username"')
+    assertContains(page, "Remove max from the team")
+
+
+@pytest.mark.django_db
+def test_project_page_links_the_team_for_members(client, team):
+    ReleaseFactory.create(project=team.project, final=True)
+    detail = reverse("project-detail", args=["foo-bar"])
+    link = f'href="{reverse("team", args=["foo-bar"])}"'
+
+    assertNotContains(client.get(detail), link)
+    client.force_login(team.maintainer)
+    assertContains(client.get(detail), link)
+
+
+@pytest.mark.django_db
+def test_change_the_team_on_the_website(client, team, bob):
+    htmx = {"HX-Request": "true"}
+    url = reverse("team", args=["foo-bar"])
+    client.force_login(team.owner)
+
+    response = client.post(url, {"username": "bob", "role": "owner"}, headers=htmx)
+    assertContains(response, 'id="team"')
+    assertNotContains(response, "<html")
+    response = client.post(url, {"username": "nobody", "role": "owner"}, headers=htmx)
+    assertContains(response, "There is no user nobody.")
+
+    bob_member = member(team.project, bob)
+    client.post(
+        reverse("team-role", args=["foo-bar", bob_member.pk]),
+        {"role": "maintainer"},
+        headers=htmx,
+    )
+    max_member = member(team.project, team.maintainer)
+    client.post(reverse("team-remove", args=["foo-bar", max_member.pk]), headers=htmx)
+    assert roles(team.project) == {"olivia": "owner", "bob": "maintainer"}
+
+    owner = member(team.project, team.owner)
+    response = client.post(
+        reverse("team-remove", args=["foo-bar", owner.pk]), headers=htmx
+    )
+    assertContains(response, "needs at least one owner")
+    assert (
+        client.get(reverse("team-remove", args=["foo-bar", owner.pk])).status_code
+        == 405
+    )
+
+
+@pytest.mark.django_db
+def test_leaving_leaves_the_page(client, team):
+    client.force_login(team.maintainer)
+    url = reverse(
+        "team-remove", args=["foo-bar", member(team.project, team.maintainer).pk]
+    )
+
+    response = client.post(url, headers={"HX-Request": "true"})
+
+    # foo-bar has no final version, so its page doesn't exist for others
+    assert response.headers["HX-Redirect"] == reverse("home")
+    assert roles(team.project) == {"olivia": "owner"}
+
+
+@pytest.mark.django_db
+def test_members_of_other_projects_are_not_found(client, team):
+    other = ProjectMemberFactory.create()
+    client.force_login(team.owner)
+
+    url = reverse("team-remove", args=["foo-bar", other.pk])
+    assert client.post(url).status_code == 404

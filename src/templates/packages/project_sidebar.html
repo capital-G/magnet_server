@@ -16,6 +16,11 @@
         {% for owner in owners %}{{ owner.username }}{% if not forloop.last %}, {% endif %}{% endfor %}
     </p>
     {% endwith %}
+    {% if can_publish %}
+    <p class="is-size-7 mt-2">
+        <a href="{% url 'team' project.slug %}">Team</a>
+    </p>
+    {% endif %}
 </div>
 
 {% if release.is_final %}

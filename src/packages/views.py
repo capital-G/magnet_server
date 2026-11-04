@@ -1,13 +1,14 @@
 from collections.abc import Callable
 from pathlib import Path
 
+from django import forms
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Prefetch, Q
 from django.http import Http404, HttpResponse
 from django.http.response import HttpResponseBase
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 from django.views.generic import DetailView, ListView, TemplateView
@@ -22,12 +23,13 @@ from rest_framework.response import Response
 
 from git_db.mirror import mirror_root
 from packages.deletion import gone_marker
-from packages.models import Asset, Project, Release
+from packages.models import Asset, Project, ProjectMember, Release
 from packages.serializers import (
     ProjectDetailSerializer,
     ProjectSerializer,
 )
 from packages.services import Conflict, delete_draft, unyank, yank
+from packages.team import add_member, remove_member, set_role
 
 
 class HomeView(TemplateView):
@@ -213,6 +215,101 @@ def unyank_view(request, slug: str, version: str) -> HttpResponse:
         version,
         lambda release: unyank(request.user, release),
         f"{reverse('project-detail', args=[slug])}?version={version}",
+    )
+
+
+class AddMemberForm(forms.Form):
+    username = forms.CharField(max_length=150)
+    role = forms.ChoiceField(
+        choices=ProjectMember.Role.choices, initial=ProjectMember.Role.maintainer
+    )
+
+
+def team_project(request, slug: str) -> Project:
+    """The project whose team page `request.user` may see: owners and maintainers."""
+    project = get_object_or_404(Project, slug=slug)
+    if not project.can_publish(request.user):
+        raise PermissionDenied
+    return project
+
+
+def render_team(
+    request, project: Project, form: AddMemberForm | None = None, error: str = ""
+) -> HttpResponse:
+    """The team page; htmx requests get only its `team` partial."""
+    template = "packages/team.html"
+    return render(
+        request,
+        f"{template}#team" if request.htmx else template,
+        {
+            "project": project,
+            "members": project.members.select_related("user", "added_by"),
+            "can_manage": project.can_manage(request.user),
+            "roles": ProjectMember.Role.choices,
+            "form": form or AddMemberForm(),
+            "error": error,
+        },
+    )
+
+
+@login_required
+def team_view(request, slug: str) -> HttpResponse:
+    """The team of a package. Owners add people here (by username)."""
+    project = team_project(request, slug)
+    if request.method != "POST":
+        return render_team(request, project)
+    form = AddMemberForm(request.POST)
+    if form.is_valid():
+        try:
+            add_member(
+                request.user,
+                project,
+                form.cleaned_data["username"],
+                form.cleaned_data["role"],
+            )
+        except ValidationError as e:
+            form.add_error("username", e)
+        else:
+            form = AddMemberForm()
+    return render_team(request, project, form)
+
+
+def member_action(
+    request, slug: str, pk: int, action: Callable[[ProjectMember], object]
+) -> HttpResponse:
+    """Runs a change of a team member, then shows the team again, or leaves the
+    page if `request.user` isn't on the team any more."""
+    project = team_project(request, slug)
+    member = get_object_or_404(ProjectMember, pk=pk, project=project)
+    try:
+        action(member)
+    except ValidationError as e:
+        return render_team(request, project, error="; ".join(e.messages))
+    if project.can_publish(request.user):
+        return render_team(request, project)
+    if Project.objects.public().filter(pk=project.pk).exists():
+        url = reverse("project-detail", args=[project.slug])
+    else:
+        url = reverse("home")
+    return HttpResponseClientRedirect(url) if request.htmx else redirect(url)
+
+
+@require_POST
+@login_required
+def set_role_view(request, slug: str, pk: int) -> HttpResponse:
+    return member_action(
+        request,
+        slug,
+        pk,
+        lambda member: set_role(request.user, member, request.POST.get("role", "")),
+    )
+
+
+@require_POST
+@login_required
+def remove_member_view(request, slug: str, pk: int) -> HttpResponse:
+    return member_action(
+        request, slug, pk, lambda member: remove_member(request.user, member)
     )
 
 
