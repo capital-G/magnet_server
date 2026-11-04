@@ -1,0 +1,21 @@
+# Starts the stack of deploy/compose.yml on boot, as the user magnet (rootless podman,
+# `loginctl enable-linger magnet`). Install as magnet (README "Deployment"):
+#   cp deploy/magnet*.service deploy/magnet*.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable magnet.service magnet-prune.timer
+[Unit]
+Description=magnet (deploy/compose.yml)
+# the compose provider talks to podman through its socket
+Requires=podman.socket
+After=podman.socket
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/magnet_server
+ExecStart=/usr/bin/podman compose -f deploy/compose.yml up -d
+ExecStop=/usr/bin/podman compose -f deploy/compose.yml down
+# pulling or building images can take a while
+TimeoutStartSec=15min
+
+[Install]
+WantedBy=default.target

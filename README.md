@@ -141,11 +141,11 @@ sudo ln -s /etc/nginx/sites-available/magnet /etc/nginx/sites-enabled/magnet
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-- **Start on boot:** rootless containers need a unit, e.g. `~/.config/systemd/user/magnet.service` (`systemctl --user enable magnet`) with `Type=oneshot`, `RemainAfterExit=yes`, `WorkingDirectory=%h/magnet_server`, `ExecStart=/usr/bin/podman compose -f deploy/compose.yml up -d`, `ExecStop=/usr/bin/podman compose -f deploy/compose.yml down` and `WantedBy=default.target`.
+- **Start on boot and weekly cleanup:** `deploy/magnet.service` (the stack) and `deploy/magnet-prune.timer` (deletes finished tasks older than two weeks), as magnet:
+  `cp deploy/magnet*.service deploy/magnet*.timer ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable magnet.service magnet-prune.timer && systemctl --user start magnet-prune.timer`.
 - **Updates:** `git pull && podman compose -f deploy/compose.yml up -d --build` (migrations run on start). After a change of the CLI or the SuperCollider version: `make docs-builder`, then `… exec server python manage.py build_docs --all`.
-- **Finished tasks** pile up in the database: e.g. weekly `… exec -T server python manage.py prune_db_task_results --min-age-days 14` from a timer or cron.
 - **Logs:** `podman compose -f deploy/compose.yml logs -f server`; the privacy policy says nginx's logs are kept 14 days at most (Ubuntu's logrotate default for nginx).
-- **The CLI** finds the index via `MAGNET_GIT_INDEX_URL=https://git.magnet.supercollider.online/magnet_index.git` (it has no default index yet).
+- **The CLI** uses `https://git.magnet.supercollider.online/magnet_index.git` by default (`MAGNET_GIT_INDEX_URL` replaces it, e.g. for the local stack).
 - If Ubuntu's `podman-compose` doesn't wait for health checks (`depends_on: condition`), the workers restart until the server has migrated (`restart: unless-stopped`).
 
 ## Development

@@ -1,0 +1,11 @@
+# Deletes the database's finished background tasks older than two weeks
+# (magnet-prune.timer, weekly).
+[Unit]
+Description=magnet: prune finished tasks
+Requires=magnet.service
+After=magnet.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/magnet_server
+ExecStart=/usr/bin/podman compose -f deploy/compose.yml exec -T server python manage.py prune_db_task_results --min-age-days 14
