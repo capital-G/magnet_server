@@ -167,6 +167,11 @@ LOGIN_REDIRECT_URL = "/"
 LOGIN_URL = "/accounts/login/"
 LOGOUT_URL = "/accounts/logout/"
 
+# Background tasks (`django.tasks`), e.g. `packages.classes.extract_classes_task`.
+# Immediate: they run inline (after the commit that enqueues them). A worker backend
+# (e.g. the django-tasks package's DatabaseBackend) can replace it without code changes.
+TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
+
 # allauth settings
 # the username is the public name (profile, packages), login is by email
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]

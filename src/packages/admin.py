@@ -13,9 +13,12 @@ from git_db.files import IndexWriteError
 from packages.deletion import delete_project_permanently, delete_release_permanently
 from packages.models import (
     Asset,
+    ClassDefinition,
+    ClassFileError,
     DeletedRelease,
     Dependency,
     GitDependency,
+    MethodDefinition,
     Project,
     ProjectMember,
     Release,
@@ -267,6 +270,7 @@ class ReleaseAdmin(PermanentDeleteMixin, admin.ModelAdmin):
     readonly_fields = [
         "uuid",
         "published_at",
+        "classes_extracted_at",
     ]
 
     autocomplete_fields = [
@@ -416,3 +420,61 @@ class DeletedReleaseAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+class ReadOnlyAdmin(admin.ModelAdmin):
+    """Data that `packages.classes.extract_classes` writes; re-read it with
+    `manage.py extract_classes` instead of editing it."""
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
+
+class MethodDefinitionInline(admin.TabularInline):
+    model = MethodDefinition
+    extra = 0
+    fields = ["name", "is_class_method"]
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(ClassDefinition)
+class ClassDefinitionAdmin(ReadOnlyAdmin):
+    list_display = [
+        "name",
+        "is_extension",
+        "superclass",
+        "release",
+        "path",
+        "line",
+        "platform",
+    ]
+    list_filter = ["is_extension", "platform"]
+    list_select_related = ["release__project"]
+    search_fields = [
+        "name",
+        "methods__name",
+        "release__project__name",
+        "release__project__normalized_name",
+    ]
+    inlines = [MethodDefinitionInline]
+
+
+@admin.register(ClassFileError)
+class ClassFileErrorAdmin(ReadOnlyAdmin):
+    list_display = ["path", "release", "message"]
+    list_select_related = ["release__project"]
+    search_fields = ["path", "release__project__name"]

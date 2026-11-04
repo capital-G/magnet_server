@@ -51,7 +51,7 @@ plugins = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["oauth2_provider.*", "allauth.*"]
+module = ["oauth2_provider.*", "allauth.*", "django.tasks.*"]
 follow_untyped_imports = true
 
 [tool.django-stubs]

@@ -8,6 +8,7 @@ import json
 import tarfile
 import tomllib
 import zlib
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path, PurePosixPath
@@ -193,6 +194,21 @@ def _read_file(file: File, path: str) -> bytes:
     finally:
         file.seek(0)
     raise ValueError(f"{path} is not in the archive")
+
+
+def read_files(
+    file: File, wanted: Callable[[str], bool]
+) -> Iterator[tuple[str, bytes]]:
+    """The files of an archive which already passed `read_archive` whose normalised
+    path is `wanted`, in archive order, each within the text file size limit."""
+    file.open("rb")
+    try:
+        with tarfile.open(fileobj=file, mode="r|gz") as archive:
+            for member in archive:
+                if member.isfile() and wanted(path := _normalised_path(member.name)):
+                    yield path, _read_text_file(archive, member)
+    finally:
+        file.seek(0)
 
 
 @cache

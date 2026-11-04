@@ -17,6 +17,7 @@ from django.utils.translation import gettext as _
 
 from git_db.db import get_git_database
 from packages.archive import InspectedArtifact, declared_kinds, inspect_artifact
+from packages.classes import enqueue_extract_classes
 from packages.models import (
     ANY,
     SOURCE_KIND,
@@ -546,6 +547,8 @@ def finalise_release(release: Release, *, complete: bool = True) -> Release:
                 % {"release": label(release), "missing": join_and(missing)}
             )
         get_git_database().commit_release(release)
+        # search and conflicts read the classes of final versions
+        enqueue_extract_classes(release)
     logger.info(f"Finalised {release}")
     return release
 

@@ -451,6 +451,10 @@ class Release(models.Model):
 
     # @todo add generic tags
     # keywords = models.ManyToManyField()
+    # when `packages.classes.extract_classes` last read the quark artifact; null
+    # until then (a version without a quark artifact has no classes)
+    classes_extracted_at = models.DateTimeField(null=True, blank=True, editable=False)
+
     yanked = models.BooleanField(
         default=False,
         help_text=_("Whether the project is yanked"),
@@ -770,3 +774,92 @@ class DeletedRelease(models.Model):
 
     def __str__(self):
         return f"{self.normalized_name} ({self.version})"
+
+
+class ClassDefinitionQuerySet(models.QuerySet):
+    def current(self) -> "ClassDefinitionQuerySet":
+        """The classes and extensions of each package's newest final, non-yanked
+        version, which search and conflicts compare (older versions would only add
+        clutter)."""
+        newest = (
+            Release.objects.final()
+            .filter(project=models.OuterRef("release__project"), yanked=False)
+            .order_by("-version_major", "-version_minor", "-version_patch")
+            .values("pk")[:1]
+        )
+        return self.filter(release=models.Subquery(newest))
+
+
+class ClassDefinition(models.Model):
+    """A class or a class extension in a `.sc` file of a version's quark artifact
+    (`packages.classes.extract_classes`)."""
+
+    release = models.ForeignKey(
+        Release, on_delete=models.CASCADE, related_name="class_definitions"
+    )
+
+    name = models.CharField(max_length=255, db_index=True)
+
+    # "" for extensions and for classes without `: Superclass` (sclang uses Object)
+    superclass = models.CharField(max_length=255, blank=True, default="")
+
+    is_extension = models.BooleanField(default=False)
+
+    # the file in the quark artifact, and the line of the class header
+    path = models.CharField(max_length=1024)
+
+    line = models.PositiveIntegerField()
+
+    # `osx`, `linux`, `windows`, `iphone` if the file is only compiled on that
+    # platform (its folder), else ""
+    platform = models.CharField(max_length=20, blank=True, default="")
+
+    objects = ClassDefinitionQuerySet.as_manager()
+
+    class Meta:
+        ordering = ("release", "is_extension", "name", "path", "line")
+        verbose_name = _("Class definition")
+        verbose_name_plural = _("Class definitions")
+
+    def __str__(self):
+        return f"{'+' if self.is_extension else ''}{self.name} ({self.release})"
+
+
+class MethodDefinition(models.Model):
+    """A method of a class or extension, incl. the accessors of its variables."""
+
+    class_definition = models.ForeignKey(
+        ClassDefinition, on_delete=models.CASCADE, related_name="methods"
+    )
+
+    name = models.CharField(max_length=255, db_index=True)
+
+    is_class_method = models.BooleanField(default=False)
+
+    class Meta:
+        # in the order of the file
+        ordering = ("class_definition", "id")
+        verbose_name = _("Method definition")
+        verbose_name_plural = _("Method definitions")
+
+    def __str__(self):
+        return f"{self.class_definition.name}:{'*' if self.is_class_method else ''}{self.name}"
+
+
+class ClassFileError(models.Model):
+    """A `.sc` file of a version's quark artifact which doesn't parse (sclang would
+    refuse it too); its classes are missing from the definitions."""
+
+    release = models.ForeignKey(
+        Release, on_delete=models.CASCADE, related_name="class_file_errors"
+    )
+
+    path = models.CharField(max_length=1024)
+
+    message = models.TextField()
+
+    class Meta:
+        ordering = ("release", "path")
+
+    def __str__(self):
+        return f"{self.path}: {self.message}"
