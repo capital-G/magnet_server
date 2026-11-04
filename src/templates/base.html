@@ -15,20 +15,44 @@
 <body hx-headers='{"x-csrftoken": "{{ csrf_token }}"}'>
 
 
-<nav class="navbar is-link" role="navigation" aria-label="main navigation">
+{# Bulma has no JS: Alpine opens the mobile menu and the user menu #}
+<nav class="navbar is-link" role="navigation" aria-label="main navigation" x-data="{ menu: false }">
     <div class="container">
         <div class="navbar-brand">
             <a class="navbar-item has-text-weight-bold is-size-5" href="{% url 'home' %}">magnet</a>
+            <a role="button" class="navbar-burger" aria-label="menu" :aria-expanded="menu"
+               :class="{ 'is-active': menu }" @click="menu = !menu">
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+            </a>
         </div>
-        <div class="navbar-menu">
+        <div class="navbar-menu" :class="{ 'is-active': menu }">
             <div class="navbar-start">
                 <a class="navbar-item" href="{% url 'projects-list' %}">Browse</a>
             </div>
             <div class="navbar-end">
                 {% if user.is_authenticated %}
-                    <span class="navbar-item has-text-light">{{ user.username }}</span>
-                    <a class="navbar-item" href="{% url 'tokens' %}">Tokens</a>
-                    <a class="navbar-item" href="{% url 'account_logout' %}">Sign out</a>
+                    <div class="navbar-item has-dropdown" x-data="{ open: false }"
+                         :class="{ 'is-active': open }"
+                         @click.outside="open = false" @keydown.escape.window="open = false">
+                        <a class="navbar-link" href="{% url 'my-packages' %}" role="button"
+                           aria-haspopup="true" :aria-expanded="open" @click.prevent="open = !open">
+                            {{ user.username }}
+                        </a>
+                        <div class="navbar-dropdown is-right">
+                            <a class="navbar-item" href="{% url 'my-packages' %}">My packages</a>
+                            <a class="navbar-item" href="{% url 'profile' user.username %}">Profile</a>
+                            <a class="navbar-item" href="{% url 'tokens' %}">Tokens</a>
+                            <a class="navbar-item" href="{% url 'account_email' %}">Account</a>
+                            {% if user.is_staff %}
+                                <a class="navbar-item" href="{% url 'admin:index' %}">Admin</a>
+                            {% endif %}
+                            <hr class="navbar-divider">
+                            <a class="navbar-item" href="{% url 'account_logout' %}">Sign out</a>
+                        </div>
+                    </div>
                 {% else %}
                     <a class="navbar-item" href="{% url 'account_login' %}">Sign in</a>
                     <div class="navbar-item">

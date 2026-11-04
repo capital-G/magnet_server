@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.db.models import Prefetch, Q
+from django.db.models import Count, Prefetch, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -94,3 +94,22 @@ def profile_view(request, username: str) -> HttpResponse:
         "users/profile.html",
         {"profile_user": user, "memberships": memberships},
     )
+
+
+@login_required
+def my_packages_view(request) -> HttpResponse:
+    """The packages the user owns or maintains, also those with only drafts."""
+    memberships = (
+        request.user.project_memberships.select_related("project")
+        .prefetch_related(
+            Prefetch("project__releases", queryset=Release.objects.final())
+        )
+        .annotate(
+            drafts=Count(
+                "project__releases",
+                filter=Q(project__releases__published_at__isnull=True),
+            )
+        )
+        .order_by("project__normalized_name")
+    )
+    return render(request, "users/my_packages.html", {"memberships": memberships})

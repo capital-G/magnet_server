@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}My packages - magnet{% endblock %}
+
+{% block content %}
+<section class="section">
+    <div class="container">
+        <h1 class="title">My packages</h1>
+        {% if memberships %}
+            <table class="table is-fullwidth is-hoverable">
+                <thead>
+                    <tr>
+                        <th>Package</th>
+                        <th>Role</th>
+                        <th>Latest version</th>
+                        <th>Drafts</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for membership in memberships %}
+                        {% with project=membership.project latest=membership.project.releases.all.0 %}
+                        <tr>
+                            <td><a href="{% url 'project-detail' project.slug %}"><strong>{{ project.name }}</strong></a></td>
+                            <td>{{ membership.get_role_display }}</td>
+                            <td>
+                                {% if latest %}
+                                    {{ latest.version }}
+                                    {% if latest.yanked %}<span class="tag is-danger is-light is-small ml-1">yanked</span>{% endif %}
+                                {% else %}
+                                    <span class="has-text-grey">none yet</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if membership.drafts %}
+                                    <span class="tag is-warning is-light">{{ membership.drafts }} draft{{ membership.drafts|pluralize }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="has-text-right">
+                                <a class="button is-small is-light" href="{% url 'team' project.slug %}">Team</a>
+                            </td>
+                        </tr>
+                        {% endwith %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="content">
+                <p>You don't own or maintain any packages yet.</p>
+                <p>
+                    Publish one with the magnet CLI: run <code>magnet login</code>, then
+                    <code>magnet package</code> and <code>magnet publish</code> in your project.
+                    The first publish of a new package makes you its owner.
+                </p>
+            </div>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
