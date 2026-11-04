@@ -328,3 +328,103 @@ def test_members_of_other_projects_are_not_found(client, team):
 
     url = reverse("team-remove", args=["foo-bar", other.pk])
     assert client.post(url).status_code == 404
+
+
+@pytest.mark.django_db
+def test_new_members_get_an_email(
+    client, team, bob, mailoutbox, django_capture_on_commit_callbacks
+):
+    bob.email = "bob@example.com"
+    bob.save()
+    client.force_login(team.owner)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        client.post(
+            reverse("team", args=["foo-bar"]), {"username": "bob", "role": "owner"}
+        )
+
+    [mail] = mailoutbox
+    assert mail.to == ["bob@example.com"]
+    assert mail.subject == "[magnet] You were added to the team of foo-bar"
+    assert (
+        "olivia added you to the team of the package foo-bar on magnet, as owner."
+        in mail.body
+    )
+    assert "manage its team" in mail.body
+    assert "http://testserver/project/foo-bar/team" in mail.body
+
+
+@pytest.mark.django_db
+def test_maintainers_mail_and_refused_adds(
+    client, team, bob, mailoutbox, django_capture_on_commit_callbacks
+):
+    client.force_login(team.owner)
+    url = reverse("team", args=["foo-bar"])
+
+    with django_capture_on_commit_callbacks(execute=True):
+        client.post(url, {"username": "max", "role": "owner"})
+        client.post(url, {"username": "nobody", "role": "owner"})
+        client.post(url, {"username": "bob", "role": "maintainer"})
+
+    [mail] = mailoutbox
+    assert mail.to == [bob.email]
+    assert "as maintainer" in mail.body and "manage its team" not in mail.body
+
+
+@pytest.mark.django_db
+def test_a_failing_mail_doesnt_fail_the_add(
+    client, team, bob, monkeypatch, django_capture_on_commit_callbacks
+):
+    def fail(*args, **kwargs):
+        raise ConnectionRefusedError("no mail server")
+
+    monkeypatch.setattr("packages.team.send_mail", fail)
+    client.force_login(team.owner)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        response = client.post(
+            reverse("team", args=["foo-bar"]), {"username": "bob", "role": "owner"}
+        )
+
+    assert response.status_code == 200
+    assert roles(team.project)["bob"] == "owner"
+
+
+@pytest.mark.django_db
+def test_removed_members_get_an_email(
+    client, team, bob, mailoutbox, django_capture_on_commit_callbacks
+):
+    add_member(team.owner, team.project, "bob", "maintainer")
+    client.force_login(team.owner)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        client.post(
+            reverse("team-remove", args=["foo-bar", member(team.project, bob).pk])
+        )
+        # refused: the last owner
+        client.post(
+            reverse(
+                "team-remove", args=["foo-bar", member(team.project, team.owner).pk]
+            )
+        )
+
+    [mail] = mailoutbox
+    assert mail.to == [bob.email]
+    assert mail.subject == "[magnet] You were removed from the team of foo-bar"
+    assert "olivia removed you from the team of the package foo-bar" in mail.body
+
+
+@pytest.mark.django_db
+def test_no_email_for_leaving(
+    client, team, mailoutbox, django_capture_on_commit_callbacks
+):
+    client.force_login(team.maintainer)
+    url = reverse(
+        "team-remove", args=["foo-bar", member(team.project, team.maintainer).pk]
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        client.post(url)
+
+    assert roles(team.project) == {"olivia": "owner"}
+    assert mailoutbox == []

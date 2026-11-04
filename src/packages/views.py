@@ -29,7 +29,13 @@ from packages.serializers import (
     ProjectSerializer,
 )
 from packages.services import Conflict, delete_draft, unyank, yank
-from packages.team import add_member, remove_member, set_role
+from packages.team import (
+    add_member,
+    remove_member,
+    send_added_mail,
+    send_removed_mail,
+    set_role,
+)
 
 
 class HomeView(TemplateView):
@@ -268,7 +274,7 @@ def team_view(request, slug: str) -> HttpResponse:
     form = AddMemberForm(request.POST)
     if form.is_valid():
         try:
-            add_member(
+            member = add_member(
                 request.user,
                 project,
                 form.cleaned_data["username"],
@@ -277,6 +283,10 @@ def team_view(request, slug: str) -> HttpResponse:
         except ValidationError as e:
             form.add_error("username", e)
         else:
+            send_added_mail(
+                member,
+                request.build_absolute_uri(reverse("team", args=[project.slug])),
+            )
             form = AddMemberForm()
     return render_team(request, project, form)
 
@@ -315,9 +325,11 @@ def set_role_view(request, slug: str, pk: int) -> HttpResponse:
 @require_POST
 @login_required
 def remove_member_view(request, slug: str, pk: int) -> HttpResponse:
-    return member_action(
-        request, slug, pk, lambda member: remove_member(request.user, member)
-    )
+    def remove(member: ProjectMember) -> None:
+        remove_member(request.user, member)
+        send_removed_mail(member, request.user)
+
+    return member_action(request, slug, pk, remove)
 
 
 class ProjectViewSet(viewsets.ViewSet):

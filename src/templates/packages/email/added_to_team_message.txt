@@ -1,0 +1,11 @@
+{% autoescape off %}Hi {{ user.username }},
+
+{{ added_by.username }} added you to the team of the package {{ project.name }} on magnet, as {{ role }}.
+
+{% if is_owner %}As an owner, you can publish versions of {{ project.name }}, yank them, delete drafts, and manage its team.{% else %}As a maintainer, you can publish versions of {{ project.name }}, yank them and delete drafts.{% endif %}
+
+The team of {{ project.name }}:
+{{ team_url }}
+
+If you don't want to be on the team, you can leave it there.
+{% endautoescape %}

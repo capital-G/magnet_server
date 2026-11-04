@@ -1,10 +1,13 @@
 """Changes of a package's team (`ProjectMember`): owners add people, change roles
 and remove them; anyone can leave. A package always keeps at least one owner."""
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.mail import send_mail
 from django.db import transaction
+from django.template.loader import render_to_string
 from django.utils.translation import gettext as _
 
 from packages.models import Project, ProjectMember
@@ -80,3 +83,46 @@ def remove_member(actor: User, member: ProjectMember) -> None:
     with transaction.atomic():
         _ensure_another_owner(member)
         member.delete()
+
+
+def _send_mail(template: str, user: User, context: dict) -> None:
+    """Sends `templates/packages/email/<template>_{subject,message}.txt` to `user`
+    after the commit; Django logs a failure (`robust`), the change stays."""
+    context = {"user": user, **context}
+    subject = render_to_string(f"packages/email/{template}_subject.txt", context)
+    message = render_to_string(f"packages/email/{template}_message.txt", context)
+
+    def send():
+        send_mail(
+            settings.ACCOUNT_EMAIL_SUBJECT_PREFIX + " ".join(subject.split()),
+            message,
+            None,  # DEFAULT_FROM_EMAIL
+            [user.email],
+        )
+
+    transaction.on_commit(send, robust=True)
+
+
+def send_added_mail(member: ProjectMember, team_url: str) -> None:
+    """Tells a new member who added them, as what, and where the team is."""
+    _send_mail(
+        "added_to_team",
+        member.user,
+        {
+            "added_by": member.added_by,
+            "project": member.project,
+            "role": member.get_role_display().lower(),
+            "is_owner": member.role == Role.owner,
+            "team_url": team_url,
+        },
+    )
+
+
+def send_removed_mail(member: ProjectMember, removed_by: User) -> None:
+    """Tells a removed member who removed them; not sent to those who left."""
+    if member.user_id != removed_by.pk:
+        _send_mail(
+            "removed_from_team",
+            member.user,
+            {"removed_by": removed_by, "project": member.project},
+        )

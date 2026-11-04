@@ -1,0 +1,6 @@
+{% autoescape off %}Hi {{ user.username }},
+
+{{ removed_by.username }} removed you from the team of the package {{ project.name }} on magnet.
+
+You can't publish versions of {{ project.name }} anymore.
+{% endautoescape %}
