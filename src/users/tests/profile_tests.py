@@ -11,6 +11,7 @@ from packages.tests.factories import (
     ProjectMemberFactory,
     ReleaseFactory,
 )
+from users.models import UserProfile
 from users.tests.factories import UserFactory
 from users.urls import urlpatterns
 from users.validators import RESERVED_USERNAMES
@@ -119,3 +120,62 @@ def test_reserved_usernames_cover_the_routes_next_to_profiles():
     """A user with such a name would have an unreachable profile."""
     fixed = {str(p.pattern).split("/")[0] for p in urlpatterns} - {"<str:username>"}
     assert fixed <= RESERVED_USERNAMES
+
+
+@pytest.mark.django_db
+def test_settings_need_login(client):
+    response = client.get(reverse("profile-settings"))
+    assert response.status_code == 302
+    assert response.url.startswith(reverse("account_login"))
+
+
+@pytest.mark.django_db
+def test_edit_the_profile(client):
+    user = UserFactory.create(username="olivia")
+    client.force_login(user)
+    assertContains(client.get(profile_url("olivia")), reverse("profile-settings"))
+    assert not UserProfile.objects.filter(user=user).exists()
+
+    response = client.post(
+        reverse("profile-settings"),
+        {
+            "profile": "I make **quarks**.\n<script>alert(1)</script>\n[x](javascript:alert(1))",
+            "website_url": "https://example.org/olivia",
+        },
+    )
+
+    assert response.status_code == 302
+    assert response.url == profile_url("olivia")
+    client.logout()
+    page = client.get(profile_url("olivia"))
+    assertContains(page, "I make <strong>quarks</strong>.")
+    assertNotContains(page, "<script>alert(1)")
+    assertNotContains(page, "javascript:")
+    assertContains(page, 'href="https://example.org/olivia" rel="nofollow')
+    assertNotContains(page, reverse("profile-settings"))
+
+    # a second save edits the same profile
+    client.force_login(user)
+    client.post(reverse("profile-settings"), {"profile": "", "website_url": ""})
+    profile = UserProfile.objects.get(user=user)
+    assert (profile.profile, profile.website_url) == ("", "")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "data, error",
+    [
+        ({"website_url": "javascript:alert(1)"}, "Enter a valid URL."),
+        ({"website_url": "ftp://example.org"}, "Enter a valid URL."),
+        ({"profile": "x" * 5001}, "at most 5000 characters"),
+    ],
+)
+def test_profile_settings_refuse(client, data, error):
+    user = UserFactory.create()
+    client.force_login(user)
+
+    response = client.post(reverse("profile-settings"), data)
+
+    assert response.status_code == 200
+    assertContains(response, error)
+    assert not UserProfile.objects.filter(user=user).exists()

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% load form_tags %}
+
+{% block title %}Edit profile - magnet{% endblock %}
+
+{% block content %}
+<section class="section">
+    <div class="container">
+        <h1 class="title">Edit profile</h1>
+        <p class="mb-5">
+            Shown on <a href="{% url 'profile' user.username %}">your profile</a>.
+            Your email address and password are under <a href="{% url 'account_email' %}">Account</a>.
+        </p>
+
+        <form method="post" action="{% url 'profile-settings' %}" class="box">
+            {% csrf_token %}
+            {% for field in form %}
+                <div class="field">
+                    <label class="label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    <div class="control">
+                        {% if field.widget_type == "textarea" %}{{ field|add_class:"textarea" }}{% else %}{{ field|add_class:"input" }}{% endif %}
+                    </div>
+                    {% for error in field.errors %}<p class="help is-danger">{{ error }}</p>{% endfor %}
+                    {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+                </div>
+            {% endfor %}
+            <button class="button is-link" type="submit">Save</button>
+        </form>
+    </div>
+</section>
+{% endblock %}

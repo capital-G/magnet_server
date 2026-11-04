@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load markdownify %}
 
 {% block title %}{{ profile_user.username }} - magnet{% endblock %}
 {% block description %}Packages of {{ profile_user.username }} on magnet{% endblock %}
@@ -7,12 +8,23 @@
 <div class="page-header py-5">
     <div class="container">
         <p class="is-size-3 has-text-weight-bold">{{ profile_user.username }}</p>
-        <p class="has-text-grey">Member since {{ profile_user.date_joined|date:"F Y" }}</p>
+        <p class="has-text-grey">
+            Member since {{ profile_user.date_joined|date:"F Y" }}
+            {% if profile.website_url %}
+                &middot; <a href="{{ profile.website_url }}" rel="nofollow noopener noreferrer ugc">{{ profile.website_url|truncatechars:60 }}</a>
+            {% endif %}
+        </p>
+        {% if profile_user == request.user %}
+            <a class="button is-small is-light mt-3" href="{% url 'profile-settings' %}">Edit profile</a>
+        {% endif %}
     </div>
 </div>
 
 <section class="section pt-5">
     <div class="container">
+        {% if profile.profile %}
+            <div class="content text mb-5">{{ profile.profile|markdownify }}</div>
+        {% endif %}
         <p class="has-text-weight-bold mb-3">Packages</p>
         <ul>
             {% for membership in memberships %}

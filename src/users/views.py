@@ -1,15 +1,17 @@
 from django import forms
+from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Prefetch, Q
 from django.http import HttpResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views import View
 from django.views.decorators.http import require_POST
 
 from packages.models import Project, ProjectMember, Release
-from users.models import CiToken
+from users.forms import ProfileForm
+from users.models import CiToken, UserProfile
 from users.oauth import create_ci_token
 
 
@@ -92,7 +94,12 @@ def profile_view(request, username: str) -> HttpResponse:
     return render(
         request,
         "users/profile.html",
-        {"profile_user": user, "memberships": memberships},
+        {
+            "profile_user": user,
+            # created by the settings page, so not every user has one
+            "profile": UserProfile.objects.filter(user=user).first(),
+            "memberships": memberships,
+        },
     )
 
 
@@ -113,3 +120,17 @@ def my_packages_view(request) -> HttpResponse:
         .order_by("project__normalized_name")
     )
     return render(request, "users/my_packages.html", {"memberships": memberships})
+
+
+@login_required
+def settings_view(request) -> HttpResponse:
+    """Edit the public profile: the text about the user and their website."""
+    profile = UserProfile.objects.filter(user=request.user).first() or UserProfile(
+        user=request.user
+    )
+    form = ProfileForm(request.POST or None, instance=profile)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Your profile has been saved.")
+        return redirect("profile", request.user.username)
+    return render(request, "users/settings.html", {"form": form})
