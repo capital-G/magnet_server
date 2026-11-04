@@ -43,8 +43,12 @@ def test_hosts_and_mail_come_from_the_environment():
     result = run(
         "-c",
         "import django, json; django.setup(); from django.conf import settings as s; "
+        "from django.core.mail.backends.smtp import EmailBackend; "
+        # the sender as the SMTP backend parses it (refuses e.g. unquoted dots)
+        "sender = EmailBackend().prep_address(s.DEFAULT_FROM_EMAIL); "
         "print(json.dumps([s.ALLOWED_HOSTS, s.CSRF_TRUSTED_ORIGINS, s.ADMINS, "
-        "s.EMAIL_HOST, s.EMAIL_PORT, s.EMAIL_USE_SSL, s.DEFAULT_FROM_EMAIL, s.DEBUG]))",
+        "s.EMAIL_HOST, s.EMAIL_PORT, s.EMAIL_USE_SSL, s.DEFAULT_FROM_EMAIL, sender, "
+        "s.DEBUG]))",
     )
 
     assert result.returncode == 0, result.stderr
@@ -55,6 +59,7 @@ def test_hosts_and_mail_come_from_the_environment():
         "ssl0.ovh.net",
         465,
         True,
-        "magnet.supercollider.online <mail@supercollider.online>",
+        "Magnet SuperCollider <mail@supercollider.online>",
+        "mail@supercollider.online",
         False,
     ]

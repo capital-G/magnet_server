@@ -51,10 +51,10 @@ EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "") in ("1", "true")
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 EMAIL_TIMEOUT = 30
-# the name tells people where the mail comes from; OVH only sends from the mailbox
-# the SMTP login belongs to
+# the name tells people where the mail comes from (dots would need quotes); OVH only
+# sends from the mailbox the SMTP login belongs to
 DEFAULT_FROM_EMAIL = os.environ.get(
-    "DEFAULT_FROM_EMAIL", "magnet.supercollider.online <mail@supercollider.online>"
+    "DEFAULT_FROM_EMAIL", "Magnet SuperCollider <mail@supercollider.online>"
 )
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 # get the tracebacks of server errors (space-separated addresses)
