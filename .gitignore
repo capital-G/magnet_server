@@ -247,3 +247,6 @@ Icon[
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# the production environment (secrets), see deploy/env.example
+deploy/.env

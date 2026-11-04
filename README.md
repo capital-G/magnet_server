@@ -100,6 +100,54 @@ Variable | Default | Comment
 
 `manage.py init_index` rewrites `config.json` when one of the URLs changed.
 
+## Deployment
+
+`deploy/` runs magnet on a server with rootless podman behind the host's nginx (TLS): `compose.yml` (server, worker, docs worker, postgres, a static nginx for `/dl/`, `/index/` and the package docs, the index over HTTP; ports only on `127.0.0.1:8310–8313`), `env.example` (copied to `deploy/.env`, which is gitignored) and `nginx.conf` (the host's server blocks for `magnet.`, `git.magnet.` and `package-docs.magnet.supercollider.online`).
+
+First setup on Ubuntu 24.04:
+
+```shell
+# slirp4netns/netavark/aardvark-dns are only recommended by podman: name them, in case
+# apt skips recommended packages (rootless networking, service names in compose)
+sudo apt install podman podman-compose uidmap slirp4netns netavark aardvark-dns systemd-container
+sudo useradd --create-home --shell /bin/bash magnet   # no password: reached via machinectl only
+grep magnet /etc/subuid /etc/subgid         # subordinate IDs for rootless podman; if missing:
+# sudo usermod --add-subuids 200000-265535 --add-subgids 200000-265535 magnet  (a free range)
+sudo loginctl enable-linger magnet          # its services run without a login
+
+# as magnet, in a real systemd session (`sudo -iu` has no XDG_RUNTIME_DIR for `systemctl --user`)
+sudo machinectl shell magnet@
+systemctl --user enable --now podman.socket # the docs worker starts build containers through it
+podman run --rm docker.io/library/alpine true   # rootless podman works
+podman info --format '{{.Host.NetworkBackend}}' # netavark; if it says cni (podman's storage was set up
+# before netavark was installed): put `[network]` `network_backend = "netavark"` into
+# ~/.config/containers/containers.conf, then `podman system reset --force` (before anything else runs)
+git clone <magnet_server repo> ~/magnet_server && git clone <magnet_cli repo> ~/magnet_cli
+mkdir ~/docs-work
+cd ~/magnet_server && DOCKER=podman make docs-builder   # compiles SuperCollider, takes a while
+cp deploy/env.example deploy/.env           # fill in: secrets, mail password, MAGNET_DOCS_SOCKET (`id -u`), …
+podman compose -f deploy/compose.yml up -d --build
+podman compose -f deploy/compose.yml exec server python manage.py createsuperuser
+podman compose -f deploy/compose.yml exec server python manage.py sendtestemail you@example.org
+```
+
+Then the host's nginx, certificate first (the config refers to it):
+
+```shell
+sudo certbot certonly --nginx -d magnet.supercollider.online \
+    -d git.magnet.supercollider.online -d package-docs.magnet.supercollider.online
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/magnet
+sudo ln -s /etc/nginx/sites-available/magnet /etc/nginx/sites-enabled/magnet
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+- **Start on boot:** rootless containers need a unit, e.g. `~/.config/systemd/user/magnet.service` (`systemctl --user enable magnet`) with `Type=oneshot`, `RemainAfterExit=yes`, `WorkingDirectory=%h/magnet_server`, `ExecStart=/usr/bin/podman compose -f deploy/compose.yml up -d`, `ExecStop=/usr/bin/podman compose -f deploy/compose.yml down` and `WantedBy=default.target`.
+- **Updates:** `git pull && podman compose -f deploy/compose.yml up -d --build` (migrations run on start). After a change of the CLI or the SuperCollider version: `make docs-builder`, then `… exec server python manage.py build_docs --all`.
+- **Finished tasks** pile up in the database: e.g. weekly `… exec -T server python manage.py prune_db_task_results --min-age-days 14` from a timer or cron.
+- **Logs:** `podman compose -f deploy/compose.yml logs -f server`; the privacy policy says nginx's logs are kept 14 days at most (Ubuntu's logrotate default for nginx).
+- **The CLI** finds the index via `MAGNET_GIT_INDEX_URL=https://git.magnet.supercollider.online/magnet_index.git` (it has no default index yet).
+- If Ubuntu's `podman-compose` doesn't wait for health checks (`depends_on: condition`), the workers restart until the server has migrated (`restart: unless-stopped`).
+
 ## Development
 
 Magnet uses `pre-commit` to enforce formatting.

@@ -1,0 +1,123 @@
+# Production stack (implementation_plan.md M7), run by a service user with rootless
+# podman, behind the host's nginx (deploy/nginx.conf), which terminates TLS:
+#
+#   cp deploy/env.example deploy/.env   # fill in, see README "Deployment"
+#   podman compose -f deploy/compose.yml up -d --build
+#
+# Compose reads deploy/.env for the ${…} below, the containers get it via env_file.
+# Ports only on 127.0.0.1:
+#   8310  Django (website, API)              magnet.supercollider.online
+#   8311  nginx: /dl/ and /index/            magnet.supercollider.online
+#   8312  nginx: the package docs            package-docs.magnet.supercollider.online
+#   8313  the index over HTTP, gitweb        git.magnet.supercollider.online
+
+volumes:
+  db:
+  # the bare index repository, written by `server` only
+  index:
+  # the artifacts at their download path, the index mirror (`index/`) and the
+  # package docs (`docs/`)
+  artifacts:
+
+services:
+  server:
+    build:
+      context: ..
+      target: server
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - GIT_INDEX_REPO_PATH=/srv/git/magnet_index.git
+      - MAGNET_ARTIFACTS_ROOT=/srv/artifacts
+    volumes:
+      - index:/srv/git
+      - artifacts:/srv/artifacts
+    ports:
+      - 127.0.0.1:8310:8000
+    # healthy once the entrypoint has migrated and gunicorn answers (with a Host
+    # header Django accepts; a shell string, since compose splits list items at spaces)
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null --header \"Host: $${MAGNET_HOST}\" http://127.0.0.1:8000/legal"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # background tasks of the queue "default" (class extraction)
+  worker:
+    build:
+      context: ..
+      target: server
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    entrypoint: ["python", "manage.py", "db_worker", "--queue-name", "default", "--no-reload"]
+    env_file:
+      - .env
+    environment:
+      - MAGNET_ARTIFACTS_ROOT=/srv/artifacts
+    volumes:
+      - artifacts:/srv/artifacts:ro
+
+  # docs builds (queue "docs") in containers of the builder image (`make
+  # docs-builder` as the service user), started through the user's podman socket
+  docs_worker:
+    build:
+      context: ..
+      target: docs_worker
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    entrypoint: ["python", "manage.py", "db_worker", "--queue-name", "docs", "--no-reload"]
+    security_opt:
+      - label=disable
+    env_file:
+      - .env
+    environment:
+      - MAGNET_ARTIFACTS_ROOT=/srv/artifacts
+      - MAGNET_DOCS_RUNNER=docker
+      - DOCKER_HOST=unix:///run/engine.sock
+    volumes:
+      - artifacts:/srv/artifacts
+      - ${MAGNET_DOCS_SOCKET}:/run/engine.sock
+      # podman resolves the build containers' mounts on the host: same path inside
+      - ${MAGNET_DOCS_WORK_DIR}:${MAGNET_DOCS_WORK_DIR}
+
+  database:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - db:/var/lib/postgresql/data
+
+  # /dl/ and /index/ (port 80), the package docs (port 81)
+  nginx:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    volumes:
+      - ../nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - artifacts:/srv/artifacts:ro
+    ports:
+      - 127.0.0.1:8311:80
+      - 127.0.0.1:8312:81
+
+  # the index for the CLI (git's smart HTTP, read-only) and gitweb
+  git:
+    build: ../git_server
+    restart: unless-stopped
+    command: ["lighttpd", "-D", "-f", "/etc/lighttpd/lighttpd.conf"]
+    volumes:
+      - index:/srv/git:ro
+    ports:
+      - 127.0.0.1:8313:80
