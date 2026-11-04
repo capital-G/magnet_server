@@ -1,4 +1,5 @@
-FROM python:3.13-alpine AS server
+# fully qualified: podman has no default registry for short names
+FROM docker.io/library/python:3.13-alpine AS server
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

@@ -89,7 +89,7 @@ services:
       - ${MAGNET_DOCS_WORK_DIR}:${MAGNET_DOCS_WORK_DIR}
 
   database:
-    image: postgres:17-alpine
+    image: docker.io/library/postgres:17-alpine
     restart: unless-stopped
     env_file:
       - .env
@@ -103,7 +103,7 @@ services:
 
   # /dl/ and /index/ (port 80), the package docs (port 81)
   nginx:
-    image: nginx:1.28-alpine
+    image: docker.io/library/nginx:1.28-alpine
     restart: unless-stopped
     volumes:
       - ../nginx/default.conf:/etc/nginx/conf.d/default.conf:ro

@@ -10,7 +10,8 @@
 ARG SC_VERSION=3.14.1
 ARG DEBIAN=bookworm
 
-FROM debian:${DEBIAN} AS supercollider
+# fully qualified: podman has no default registry for short names
+FROM docker.io/library/debian:${DEBIAN} AS supercollider
 ARG SC_VERSION
 ARG MAKE_JOBS=4
 
@@ -59,7 +60,7 @@ RUN cd /src/SCClassLibrary && \
         -exec cp -R --parents {} /opt/supercollider/share/SuperCollider/SCClassLibrary/ \;
 
 
-FROM rust:1-${DEBIAN} AS cli
+FROM docker.io/library/rust:1-${DEBIAN} AS cli
 
 WORKDIR /src
 # the build context `magnet_cli` (../magnet_cli), without its target/
@@ -69,7 +70,7 @@ COPY --from=magnet_cli src src
 RUN cargo build --release --locked
 
 
-FROM debian:${DEBIAN}-slim
+FROM docker.io/library/debian:${DEBIAN}-slim
 ARG SC_VERSION
 
 # runtime libraries of sclang and magnet (`ldd`), certificates for the index/downloads
