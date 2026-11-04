@@ -1,0 +1,11 @@
+{% with latest=project.releases.all.0 %}
+<a class="box mb-3" href="{% url 'project-detail' project.slug %}">
+    <div class="is-flex is-align-items-center is-justify-content-space-between">
+        <div>
+            <p class="is-size-5">{{ project.name|truncatechars:32 }}</p>
+            <p class="has-text-grey">{{ latest.summary|truncatechars:42 }}</p>
+        </div>
+        <span class="has-text-grey ml-3">{{ latest.version }}</span>
+    </div>
+</a>
+{% endwith %}

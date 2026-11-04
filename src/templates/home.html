@@ -19,4 +19,21 @@
         </div>
     </div>
 </section>
+
+{% if project_count %}
+<section class="section">
+    <div class="container">
+        <div class="columns">
+            {% for title, projects in charts %}
+                <div class="column is-one-third">
+                    <h2 class="title is-5">{{ title }}</h2>
+                    {% for project in projects %}
+                        {% include "packages/project_tile.html" %}
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+{% endif %}
 {% endblock %}

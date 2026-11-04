@@ -5,7 +5,7 @@ from django import forms
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Prefetch, Q
+from django.db.models import Max, Min, Prefetch, Q
 from django.http import Http404, HttpResponse
 from django.http.response import HttpResponseBase
 from django.shortcuts import redirect, render
@@ -40,11 +40,29 @@ from packages.team import (
 
 class HomeView(TemplateView):
     template_name = "home.html"
+    # packages per column
+    tiles = 6
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["project_count"] = Project.objects.public().count()
         context["release_count"] = Release.objects.final().count()
+        # public packages without `public()`'s DISTINCT, which postgres refuses
+        # together with a random order
+        projects = (
+            Project.objects.annotate(
+                first_published=Min("releases__published_at"),
+                last_published=Max("releases__published_at"),
+            )
+            .filter(last_published__isnull=False)
+            # the latest final version for the tile
+            .prefetch_related(Prefetch("releases", queryset=Release.objects.final()))
+        )
+        context["charts"] = [
+            ("New packages", projects.order_by("-first_published")[: self.tiles]),
+            ("Random packages", projects.order_by("?")[: self.tiles]),
+            ("Just updated", projects.order_by("-last_published")[: self.tiles]),
+        ]
         return context
 
 
