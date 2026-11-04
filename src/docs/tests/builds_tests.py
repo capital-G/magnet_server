@@ -11,6 +11,16 @@ from docs.runner import Container, Result
 from docs.tasks import build_docs, request_build, shorten_log
 from packages.tests.factories import ProjectFactory, ReleaseFactory
 
+DOCMAP = {
+    "sclang_version": "3.14.1",
+    "documents": {
+        "Classes/Foo": {"owner": "package", "title": "Foo", "summary": "A foo"},
+        "Classes/SinOsc": {"owner": "sc"},
+    },
+    "files": [],
+    "errors": [],
+}
+
 
 class FakeRunner:
     """Does what the builder image would: `install` creates the package's folder,
@@ -33,9 +43,7 @@ class FakeRunner:
             out = mounts["/out"]
             (out / "Classes").mkdir()
             (out / "Classes" / "Foo.html").write_text(self.page)
-            (out / "docmap.json").write_text(
-                json.dumps({"sclang_version": "3.14.1", "documents": {}, "errors": []})
-            )
+            (out / "docmap.json").write_text(json.dumps(DOCMAP))
         return Result(0, f"{step} output\n")
 
 
@@ -223,12 +231,16 @@ def test_a_new_build_replaces_the_docs_atomically(runner):
 
     second = build(release)
 
-    assert page() == "<p>new docs</p>"
+    assert "<p>new docs</p>" in page()
     assert (publish.docs_root() / "foo").is_symlink()
     assert publish.published_dir("foo") == publish.build_dir("foo", second.pk)
     # the old build's folder is gone, no temporary links are left
     assert not publish.build_dir("foo", first.pk).exists()
-    assert sorted(p.name for p in publish.docs_root().iterdir()) == [".builds", "foo"]
+    assert sorted(p.name for p in publish.docs_root().iterdir()) == [
+        ".builds",
+        "_static",
+        "foo",
+    ]
 
 
 @pytest.mark.django_db

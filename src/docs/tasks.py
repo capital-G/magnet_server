@@ -6,7 +6,7 @@
    without sclang, so a `sclang` requirement the builder doesn't meet doesn't stop it
    (the build gets `sclang_mismatch` instead)
 3. render: docs_builder/render.scd, without network, the packages read-only
-4. post-process the output (`docs.rewrite`)
+4. post-process the output (`docs.rewrite`): links by owner, the magnet bar
 5. publish it (`docs.publish`); a failed build keeps the previous docs
 """
 
@@ -16,17 +16,20 @@ import shutil
 import traceback
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
+from urllib.parse import urljoin
 
 from django.conf import settings
 from django.db import transaction
 from django.tasks import task
+from django.urls import reverse
 from django.utils import timezone
 
 from docs import publish, rewrite
 from docs.models import DocBuild
 from docs.runner import Container, Mount, Runner, get_runner
 from packages.classes import current_release
-from packages.models import Release
+from packages.models import Project, Release
 from packages.validators import version_req_matches
 
 logger = logging.getLogger(__name__)
@@ -179,12 +182,40 @@ def _build(build: DocBuild, work: Path, log: list[str]) -> str | None:
     target = publish.build_dir(name, build.pk)
     shutil.rmtree(target, ignore_errors=True)
     try:
-        rewrite.postprocess(out, target, docmap)
+        rewrite.postprocess(out, target, docmap, context(build, docmap))
         publish.publish(name, target)
     except Exception:
         shutil.rmtree(target, ignore_errors=True)
         raise
     return None
+
+
+def context(build: DocBuild, docmap: dict[str, Any]) -> rewrite.Context:
+    release = build.release
+    project = release.project
+    dependencies = {
+        document["dependency"]
+        for document in docmap["documents"].values()
+        if document["owner"] == "dependency"
+    }
+    return rewrite.Context(
+        name=project.normalized_name,
+        version=release.version,
+        summary=release.summary,
+        sclang=release.sclang,
+        sclang_version=build.sclang_version,
+        sclang_mismatch=build.sclang_mismatch,
+        project_url=urljoin(
+            settings.MAGNET_API_BASE_URL, reverse("project-detail", args=[project.slug])
+        ),
+        repository_url=release.repository_url,
+        docs_base_url=settings.MAGNET_DOCS_BASE_URL,
+        hosted_dependencies=frozenset(
+            Project.objects.public()
+            .filter(normalized_name__in=dependencies)
+            .values_list("normalized_name", flat=True)
+        ),
+    )
 
 
 def _run(runner: Runner, container: Container, step: str, log: list[str]) -> str | None:

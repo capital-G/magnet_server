@@ -1,0 +1,40 @@
+{
+ "documents": {
+  "Classes/DemoHelper": {
+   "owner": "package",
+   "undocumented": true
+  },
+  "Classes/DemoThing": {
+   "categories": [
+    "Magnet"
+   ],
+   "owner": "package",
+   "summary": "A demo of magnet's docs",
+   "title": "DemoThing"
+  },
+  "Classes/DepThing": {
+   "dependency": "docdep",
+   "owner": "dependency"
+  },
+  "Classes/LegacyThing": {
+   "dependency": "legacything",
+   "owner": "dependency"
+  },
+  "Classes/SinOsc": {
+   "owner": "sc"
+  },
+  "Guides/DemoGuide": {
+   "categories": [
+    "Magnet"
+   ],
+   "owner": "package",
+   "summary": "How to use DemoThing",
+   "title": "DemoGuide"
+  }
+ },
+ "errors": [],
+ "files": [
+  "Classes/demo.png"
+ ],
+ "sclang_version": "3.14.1"
+}

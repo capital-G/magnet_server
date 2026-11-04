@@ -1,0 +1,7 @@
+{# the magnet bar of the published docs, see docs/rewrite.py #}
+<div id="magnet-bar">
+  <a class="magnet-package" href="{{ project_url }}">{{ name }} {{ version }}</a>
+  <a href="{{ index_url }}">Docs</a>
+  {% if repository_url %}<a href="{{ repository_url }}">Repository</a>{% endif %}
+  <span class="magnet-note">Built with SuperCollider {{ sclang_version }}{% if sclang_mismatch %}, which this version doesn't list as supported ({{ sclang }}){% endif %}</span>
+</div>

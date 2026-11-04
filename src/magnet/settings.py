@@ -273,6 +273,9 @@ MAGNET_DOCS_WORK_DIR = Path(
 # the network of that container (the engine's default if empty, e.g. `host`)
 MAGNET_DOCS_GIT_INDEX_URL = os.environ.get("MAGNET_DOCS_GIT_INDEX_URL", "")
 MAGNET_DOCS_INSTALL_NETWORK = os.environ.get("MAGNET_DOCS_INSTALL_NETWORK", "")
+# where the docs are served (the folder MAGNET_ARTIFACTS_ROOT/docs), with a trailing
+# slash, e.g. https://docs.example.org/; links to the docs of dependencies use it
+MAGNET_DOCS_BASE_URL = os.environ.get("MAGNET_DOCS_BASE_URL", "http://localhost:8082/")
 # limits of each build container: seconds, memory, processes, CPUs (if set; rootless
 # podman needs the cgroup cpu controller delegated for it)
 MAGNET_DOCS_TIMEOUT = int(os.environ.get("MAGNET_DOCS_TIMEOUT", "600"))

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ name }} {{ version }} | magnet docs</title>
+  <link rel="stylesheet" href="{{ static_url }}static/scdoc.css">
+  <link rel="stylesheet" href="{{ static_url }}static/themes/default.css">
+  <link rel="stylesheet" href="{{ magnet_css_url }}">
+</head>
+<body>
+<div class="contents">
+  <h1>{{ name }} {{ version }}</h1>
+  {% if summary %}<p>{{ summary }}</p>{% endif %}
+  {% for folder, documents in groups %}
+    <h2>{{ folder }}</h2>
+    <ul>
+      {% for document in documents %}
+        <li><a href="{{ document.path }}.html">{{ document.title }}</a>{% if document.summary %}: {{ document.summary }}{% endif %}</li>
+      {% endfor %}
+    </ul>
+  {% empty %}
+    <p>This version has no help files (<code>.schelp</code>).</p>
+  {% endfor %}
+</div>
+{% include "docs/bar.html" with index_url="index.html" %}
+</body>
+</html>

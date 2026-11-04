@@ -90,6 +90,7 @@ Variable | Default | Comment
 `MAGNET_DOCS_WORK_DIR` | `<tmp>/magnet-docs` | work dirs of the builds; a worker in a container must see it at the engine host's path
 `MAGNET_DOCS_GIT_INDEX_URL` | | index for `magnet install` in the build container
 `MAGNET_DOCS_INSTALL_NETWORK` | engine default | network of the install container, e.g. `host`
+`MAGNET_DOCS_BASE_URL` | `http://localhost:8082/` | where the docs are served, for links to the docs of dependencies
 `MAGNET_DOCS_TIMEOUT`, `_MEMORY`, `_PIDS_LIMIT`, `_CPUS` | `600`, `2g`, `256`, none | limits per build container
 
 `manage.py init_index` rewrites `config.json` when one of the URLs changed.

@@ -1,0 +1,35 @@
+/* added to every page of the published docs (docs/rewrite.py): the magnet bar at the
+   bottom and a readable width, like ~/github/sc-docs-dev */
+body {
+    max-width: 1200px;
+    margin: auto;
+    padding-bottom: 2.5em;
+}
+
+#menubar {
+    max-width: 1200px;
+}
+
+#magnet-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    padding: 0.5em 1em;
+    font-size: 9pt;
+    background-color: var(--color-bg, #fff);
+    box-shadow: 0 0 0.25em var(--color-fg-200, #999);
+}
+
+#magnet-bar a {
+    margin-right: 1em;
+}
+
+#magnet-bar .magnet-package {
+    font-weight: bold;
+}
+
+#magnet-bar .magnet-note {
+    color: var(--color-fg-200, #777);
+}
