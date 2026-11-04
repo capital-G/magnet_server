@@ -1,0 +1,48 @@
+{% if not release.is_final %}
+    <p class="has-text-grey">The classes of a version are read once it's published.</p>
+{% elif not release.classes_extracted_at %}
+    <p class="has-text-grey">The classes of v{{ release.version }} haven't been read yet.</p>
+{% else %}
+    {% if class_file_errors %}
+        <div class="notification is-warning is-light">
+            <p class="mb-2">These files of the quark artifact don't parse, so their classes are missing here (sclang refuses them too):</p>
+            <ul>
+                {% for error in class_file_errors %}
+                    <li><code>{{ error.path }}</code>: {{ error.message }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+    {# a tree: file, its classes and extensions, their methods #}
+    <div class="content">
+        {% for file in class_files %}
+            <details class="mb-3"{% if class_files|length <= 10 %} open{% endif %}>
+                <summary>
+                    <code>{{ file.path }}</code>
+                    {% if file.platform %}<span class="tag is-light ml-1">{{ file.platform }} only</span>{% endif %}
+                </summary>
+                <ul class="mt-2">
+                    {% for definition in file.definitions %}
+                        <li>
+                            <strong class="is-family-monospace">{% if definition.is_extension %}+ {% endif %}{{ definition.name }}</strong>
+                            {% if not definition.is_extension %}
+                                <span class="has-text-grey is-family-monospace">: {{ definition.superclass|default:"Object" }}</span>
+                            {% endif %}
+                            <span class="has-text-grey is-size-7 ml-1">line {{ definition.line }}</span>
+                            {% with methods=definition.methods.all %}
+                                {% if methods %}
+                                    <ul class="is-family-monospace is-size-7 mt-1">
+                                        {% for method in methods %}{% if method.is_class_method %}<li>*{{ method.name }}</li>{% endif %}{% endfor %}
+                                        {% for method in methods %}{% if not method.is_class_method %}<li>{{ method.name }}</li>{% endif %}{% endfor %}
+                                    </ul>
+                                {% endif %}
+                            {% endwith %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            </details>
+        {% empty %}
+            <p class="has-text-grey">v{{ release.version }} has no classes.</p>
+        {% endfor %}
+    </div>
+{% endif %}

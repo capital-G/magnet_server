@@ -4,10 +4,16 @@ import pytest
 from django.core.files.base import ContentFile
 from django.core.management import call_command
 from django.urls import reverse
+from pytest_django.asserts import assertContains, assertNotContains
 
 from git_db.db import GitDatabase, get_git_database
-from packages.classes import extract_classes, extract_classes_task
-from packages.models import Asset, ClassDefinition, ClassFileError
+from packages.classes import (
+    conflicts,
+    conflicts_by_package,
+    extract_classes,
+    extract_classes_task,
+)
+from packages.models import Asset, ClassDefinition, ClassFileError, Project
 from packages.services import create_draft, finalise
 from packages.tests.factories import AssetFactory, ReleaseFactory, tar_gz
 from packages.tests.services_tests import upload_quark
@@ -220,3 +226,183 @@ def test_admin_shows_the_classes(admin_client):
         admin_client.get(reverse("admin:packages_classdefinition_add")).status_code
         == 403
     )
+
+
+def published(name, *files, version="1.0.0", **kwargs):
+    """A package `name` whose version has the class files `files`, extracted."""
+    project = Project.objects.filter(name=name).first()
+    if project is not None:
+        kwargs["project"] = project
+    else:
+        kwargs["project__name"] = name
+    release = release_with(*files, version=version, **kwargs)
+    extract_classes(release)
+    return release
+
+
+def found(release):
+    return [(c.kind, c.label, c.other.project.name) for c in conflicts(release)]
+
+
+@pytest.mark.django_db
+def test_class_and_method_conflicts():
+    alpha = published(
+        "alpha",
+        ("Classes/Foo.sc", b"Foo { }"),
+        ("Classes/ext.sc", b"+ String { shout { } *make { } quiet { } }"),
+    )
+    published("beta", ("Classes/Foo.sc", b"Foo : Bar { }"))
+    published("gamma", ("Classes/ext.sc", b"+ String { shout { } make { } }"))
+    published("delta", ("Classes/ext.sc", b"+ String { *make { } }"))
+    # an extension of a class isn't a conflict with its definition
+    published("epsilon", ("Classes/ext.sc", b"+ Foo { bar { } }"))
+
+    assert found(alpha) == [
+        ("class", "Foo", "beta"),
+        ("method", "String:*make", "delta"),
+        ("method", "String:-shout", "gamma"),
+    ]
+
+
+@pytest.mark.django_db
+def test_conflicts_only_with_current_versions():
+    alpha = published("alpha", ("Classes/Foo.sc", b"Foo { }"))
+    # beta renamed its class in 2.0.0
+    published("beta", ("Classes/Foo.sc", b"Foo { }"), version="1.0.0")
+    published("beta", ("Classes/Bar.sc", b"Bar { }"), version="2.0.0")
+    # gamma's version with Foo is yanked, delta's only a draft
+    published("gamma", ("Classes/Foo.sc", b"Foo { }"), yanked=True)
+    published("delta", ("Classes/Foo.sc", b"Foo { }"), final=False)
+    # alpha's own older version doesn't count
+    published("alpha", ("Classes/Foo.sc", b"Foo { }"), version="0.9.0")
+
+    assert found(alpha) == []
+
+
+@pytest.mark.django_db
+def test_platform_folders_dont_conflict():
+    alpha = published("alpha", ("Classes/osx/Foo.sc", b"Foo { }"))
+    published("beta", ("Classes/linux/Foo.sc", b"Foo { }"))
+    published("gamma", ("Classes/Foo.sc", b"Foo { }"))
+
+    assert found(alpha) == [("class", "Foo", "gamma")]
+
+
+@pytest.mark.django_db
+def test_project_page_shows_conflicts_of_the_current_version(client):
+    alpha = published("alpha", ("Classes/Foo.sc", b"Foo { }"), version="1.0.0")
+    published("alpha", ("Classes/Foo.sc", b"Foo { }"), version="0.9.0")
+    published("beta", ("Classes/Foo.sc", b"Foo { }"))
+    url = reverse("project-detail", args=["alpha"])
+
+    page = client.get(url)
+    assertContains(page, "Naming conflicts")
+    assertContains(page, "<li>class <code>Foo</code></li>", html=True)
+    assertContains(page, reverse("project-detail", args=["beta"]))
+    # older versions aren't what people install
+    assertNotContains(client.get(url, {"version": "0.9.0"}), "Naming conflicts")
+    assert alpha.version == "1.0.0"
+
+
+@pytest.mark.django_db
+def test_no_conflicts_box_without_conflicts(client):
+    published("alpha", ("Classes/Foo.sc", b"Foo { }"))
+    assertNotContains(
+        client.get(reverse("project-detail", args=["alpha"])), "Naming conflicts"
+    )
+
+
+@pytest.mark.django_db
+def test_classes_tab(client):
+    release = published(
+        "alpha",
+        ("Classes/Foo.sc", FOO),
+        ("Classes/osx/Mac.sc", b"Mac : Foo { }"),
+        ("Classes/ext.sc", b"+ String { shout { } }"),
+        ("Classes/Bad.sc", b"}"),
+    )
+    url = reverse("project-detail", args=["alpha"])
+
+    page = client.get(url)
+
+    assertContains(page, "Classes</a>")
+    assertContains(page, '<strong class="is-family-monospace">Foo</strong>', html=True)
+    # files with their classes, the classes with their methods
+    assertContains(page, "<summary><code>Classes/Foo.sc</code></summary>", html=True)
+    assertContains(page, "line 2")
+    assertContains(
+        page,
+        '<ul class="is-family-monospace is-size-7 mt-1">'
+        "<li>*new</li><li>volume</li><li>volume_</li><li>play</li></ul>",
+        html=True,
+    )
+    assertContains(
+        page, '<strong class="is-family-monospace">+ String</strong>', html=True
+    )
+    assertContains(page, "osx only")
+    # parse errors only for the team
+    assertNotContains(page, "Classes/Bad.sc")
+    client.force_login(release.project.owners().get())
+    assertContains(client.get(url), "<code>Classes/Bad.sc</code>")
+
+
+@pytest.mark.django_db
+def test_classes_tab_of_drafts_and_unread_versions(client):
+    draft = release_with(("Classes/Foo.sc", FOO), final=False, project__name="alpha")
+    client.force_login(draft.project.owners().get())
+    url = reverse("project-detail", args=["alpha"])
+
+    assertContains(client.get(url), "read once it's published")
+    ReleaseFactory.create(project=draft.project, version="0.1.0", final=True)
+    assertContains(client.get(url, {"version": "0.1.0"}), "haven't been read yet")
+
+
+@pytest.mark.django_db
+def test_conflicts_are_grouped_by_package(client):
+    alpha = published(
+        "alpha",
+        ("Classes/Foo.sc", b"Foo { } Bar { }"),
+        ("Classes/ext.sc", b"+ String { shout { } }"),
+    )
+    # a fork of alpha
+    published(
+        "alpha-fork",
+        ("Classes/Foo.sc", b"Foo { } Bar { }"),
+        ("Classes/ext.sc", b"+ String { shout { } }"),
+    )
+    published("beta", ("Classes/ext.sc", b"+ String { shout { } }"))
+
+    groups = conflicts_by_package(alpha)
+
+    assert [
+        (
+            g.other.project.name,
+            [c.label for c in g.classes],
+            [c.label for c in g.methods],
+        )
+        for g in groups
+    ] == [
+        ("alpha-fork", ["Bar", "Foo"], ["String:-shout"]),
+        ("beta", [], ["String:-shout"]),
+    ]
+    page = client.get(reverse("project-detail", args=["alpha"]))
+    assertContains(
+        page, '<span class="tag is-danger is-light ml-1">2 classes</span>', html=True
+    )
+    assertContains(
+        page,
+        '<span class="tag is-warning is-light ml-1">1 method</span>',
+        count=2,
+        html=True,
+    )
+
+
+@pytest.mark.django_db
+def test_classes_tab_folds_many_files(client):
+    files = [(f"Classes/C{n}.sc", f"C{n} {{ }}".encode()) for n in range(11)]
+    published("alpha", *files)
+
+    page = client.get(reverse("project-detail", args=["alpha"])).text
+
+    assert page.count('<details class="mb-3"') == 11
+    assert '<details class="mb-3" open>' not in page

@@ -22,6 +22,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from git_db.mirror import mirror_root
+from packages.classes import class_files, conflicts_by_package
 from packages.deletion import gone_marker
 from packages.models import Asset, Project, ProjectMember, Release
 from packages.serializers import (
@@ -129,11 +130,19 @@ class ProjectDetail(DetailView):
         context["maintainers"] = [
             m.user for m in members if m.role == ProjectMember.Role.maintainer
         ]
-        context["release"] = next(
+        context["release"] = release = next(
             (r for r in self.releases if r.version == version),
             # the newest final release, or the newest draft if there is none
             next(iter(final or self.releases), None),
         )
+        if release is not None:
+            context["class_files"] = class_files(release)
+            if self.can_publish:
+                context["class_file_errors"] = list(release.class_file_errors.all())
+            # conflicts are about the version people install (`current_release`)
+            current = next((r for r in final if not r.yanked), None)
+            if current is not None and release.pk == current.pk:
+                context["name_conflicts"] = conflicts_by_package(release)
         return context
 
 

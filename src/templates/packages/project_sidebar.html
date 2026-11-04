@@ -63,3 +63,28 @@
     {% endif %}
 </div>
 {% endif %}
+
+{% if name_conflicts %}
+<div class="box">
+    <p class="has-text-weight-bold mb-3">Naming conflicts</p>
+    {# one line per package, the names behind it: a fork of a big quark clashes a lot #}
+    {% for group in name_conflicts %}
+        <details class="is-size-7 mb-2">
+            <summary>
+                <a href="{% url 'project-detail' group.other.project.slug %}">{{ group.other.project.name }}</a>
+                <span class="has-text-grey">{{ group.other.version }}</span>
+                {% if group.classes %}<span class="tag is-danger is-light ml-1">{{ group.classes|length }} class{{ group.classes|length|pluralize:"es" }}</span>{% endif %}
+                {% if group.methods %}<span class="tag is-warning is-light ml-1">{{ group.methods|length }} method{{ group.methods|length|pluralize }}</span>{% endif %}
+            </summary>
+            <ul class="mt-1 ml-4">
+                {% for conflict in group.classes %}<li>class <code>{{ conflict.label }}</code></li>{% endfor %}
+                {% for conflict in group.methods %}<li>method <code>{{ conflict.label }}</code></li>{% endfor %}
+            </ul>
+        </details>
+    {% endfor %}
+    <p class="is-size-7 has-text-grey mt-3">
+        sclang has one namespace for all classes: it refuses to compile a class defined twice,
+        and of two extensions with the same method, one silently replaces the other.
+    </p>
+</div>
+{% endif %}

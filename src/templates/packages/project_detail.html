@@ -49,6 +49,9 @@
             <li :class="{ 'is-active': tab === 'assets' }">
                 <a @click.prevent="tab = 'assets'">Assets</a>
             </li>
+            <li :class="{ 'is-active': tab === 'classes' }">
+                <a @click.prevent="tab = 'classes'">Classes</a>
+            </li>
         </ul>
     </div>
 
@@ -68,6 +71,10 @@
 
             <div x-show="tab === 'assets'" x-cloak>
                 {% include "packages/project_assets.html" %}
+            </div>
+
+            <div x-show="tab === 'classes'" x-cloak>
+                {% include "packages/project_classes.html" %}
             </div>
         </div>
 
