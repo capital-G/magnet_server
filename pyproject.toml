@@ -23,6 +23,8 @@ dependencies = [
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "magnet.settings"
 python_files = ["**/tests/*.py"]
+# in parallel; `-n0` for a single test or `--pdb`
+addopts = "-n auto"
 filterwarnings = [
     # whitenoise: tests don't run collectstatic, so STATIC_ROOT doesn't exist
     "ignore:No directory at:UserWarning",
@@ -62,6 +64,7 @@ dev = [
     "factory-boy>=3.3.3",
     "mypy==1.17",
     "pytest-django>=4.11.1",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.17.2",
     "types-jsonschema>=4.26.0.20261006",
 ]
