@@ -27,6 +27,30 @@
     {% endif %}
 </div>
 
+<div class="box">
+    <p class="has-text-weight-bold mb-3">Docs</p>
+    {% if docs.url %}
+    <p class="is-size-7">
+        <a href="{{ docs.url }}">Docs of {{ docs.built.release.version }}</a>
+    </p>
+    {% else %}
+    <p class="is-size-7 has-text-grey">No docs published yet.</p>
+    {% endif %}
+    {% if can_publish %}
+    {# the newest build and the builds page, for the team #}
+    {% if docs.latest %}
+    {% with build=docs.latest %}
+    <p class="is-size-7 mt-2">
+        {{ build.release.version }}: {% include "docs/build_status.html" %}
+        {% if build.error %}<br><span class="has-text-grey">{{ build.error }}</span>{% endif %}
+        {% if build.sclang_mismatch %}<br><span class="has-text-grey">SuperCollider {{ build.sclang_version }} isn't in its sclang range ({{ build.release.sclang }})</span>{% endif %}
+    </p>
+    {% endwith %}
+    {% endif %}
+    <p class="is-size-7 mt-2"><a href="{% url 'docs-builds' project.slug %}">Builds</a></p>
+    {% endif %}
+</div>
+
 {% if release.is_final %}
 <div class="box">
     <p class="has-text-weight-bold mb-3">Install</p>

@@ -10,6 +10,7 @@
 # DEPENDENCY is the value of the package in the [dependencies] of a temporary project.
 # 1. install (with network): `magnet install` fetches the package and its dependencies
 #    into WORK/magnet_packages, without sclang on the PATH (no sclang requirement check)
+#    and without the binaries of leptons
 # 2. render (no network, magnet_packages read-only at /packages, OUT_DIR at /out,
 #    limits): render.scd writes the HTML and docmap.json
 #
@@ -57,7 +58,7 @@ $RUN \
     --env MAGNET_GIT_INDEX_URL="${MAGNET_GIT_INDEX_URL:-git://host.containers.internal:9418/magnet_index.git}" \
     ${MAGNET_HTTP_INDEX_URL:+--env MAGNET_HTTP_INDEX_URL="$MAGNET_HTTP_INDEX_URL"} \
     ${MAGNET_API_URL:+--env MAGNET_API_URL="$MAGNET_API_URL"} \
-    "$IMAGE" /usr/local/bin/magnet install
+    "$IMAGE" /usr/local/bin/magnet install --no-binaries
 
 echo "== render $PACKAGE into $OUT"
 # runs the package's code (class library compilation, *initClass, StartUp): no network,

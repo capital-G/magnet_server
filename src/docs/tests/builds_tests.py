@@ -99,7 +99,7 @@ def test_a_build_installs_renders_and_publishes(
 
     install, render = runner.containers
     work = settings.MAGNET_DOCS_WORK_DIR / str(queued.pk)
-    assert install.command == ["/usr/local/bin/magnet", "install"]
+    assert install.command == ["/usr/local/bin/magnet", "install", "--no-binaries"]
     # no sclang on the PATH, the index of the settings
     assert install.env == {
         "PATH": "/usr/bin:/bin",
@@ -160,6 +160,17 @@ def test_a_failed_build_keeps_the_previous_docs(runner):
     assert publish.published_dir("foo") == publish.build_dir("foo", first.pk)
     assert page() == "<p>docs</p>"
     assert not publish.build_dir("foo", failed.pk).exists()
+
+
+@pytest.mark.django_db
+def test_the_log_loses_the_cli_colours(runner):
+    runner.results["install"] = Result(
+        1, "\x1b[32m INFO\x1b[0m \x1b[2mmagnet\x1b[0m: x\n"
+    )
+
+    failed = build(version())
+
+    assert failed.log == "$ install\n INFO magnet: x\n"
 
 
 @pytest.mark.django_db

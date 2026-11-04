@@ -214,6 +214,20 @@ def test_index_lists_the_documents_by_folder(rendered):
 
 
 @pytest.mark.django_db
+def test_index_of_documents_without_folder(rendered):
+    data = docmap(rendered)
+    data["documents"] = {"Intro": {"owner": "package", "title": "Intro", "summary": ""}}
+    (rendered / "Intro.html").write_text("<html><body></body></html>")
+    target = publish.build_dir("docdemo", 1)
+
+    postprocess(rendered, target, data, CONTEXT)
+
+    html = (target / "index.html").read_text()
+    assert '<a href="Intro.html">Intro</a>' in html
+    assert "<h2></h2>" not in html
+
+
+@pytest.mark.django_db
 def test_index_without_documents(rendered):
     data = docmap(rendered)
     data["documents"] = {}

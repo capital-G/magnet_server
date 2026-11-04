@@ -1,0 +1,4 @@
+{# the status of a docs build `build` as a tag #}
+{% if build.status == "built" %}<span class="tag is-success is-light">built</span>
+{% elif build.status == "failed" %}<span class="tag is-danger is-light">failed</span>
+{% else %}<span class="tag is-light">{{ build.get_status_display|lower }}</span>{% endif %}

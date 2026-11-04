@@ -21,6 +21,7 @@ from rest_framework import status, viewsets
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
+from docs.status import docs_status
 from git_db.mirror import mirror_root
 from packages.classes import class_files, conflicts_by_package, search
 from packages.deletion import gone_marker
@@ -123,6 +124,7 @@ class ProjectDetail(DetailView):
         final = [release for release in self.releases if release.is_final]
         context["releases"] = self.releases
         context["can_publish"] = self.can_publish
+        context["docs"] = docs_status(self.object)
         members = list(self.object.members.select_related("user"))
         context["owners"] = [
             m.user for m in members if m.role == ProjectMember.Role.owner

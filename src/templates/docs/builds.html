@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Docs of {{ project.name }} - magnet{% endblock %}
+
+{% block content %}
+<div class="page-header py-5">
+    <div class="container">
+        <p class="is-size-7 has-text-grey mb-2">
+            <a href="{% url 'project-detail' project.slug %}">{{ project.name }}</a> /
+        </p>
+        <p class="is-size-3 has-text-weight-bold">Docs</p>
+    </div>
+</div>
+
+<section class="section pt-5">
+    <div class="container">
+        <p class="mb-5">
+            The docs of the current version are built from its <code>.schelp</code> files
+            whenever the current version changes. A failed build keeps the previous docs.
+            {% if status.url %}
+                Published: <a href="{{ status.url }}">{{ project.name }} {{ status.built.release.version }}</a>.
+            {% else %}
+                No docs are published.
+            {% endif %}
+        </p>
+
+        {% if can_manage and builds_on %}
+        <form method="post" action="{% url 'docs-rebuild' project.slug %}" class="mb-5">
+            {% csrf_token %}
+            <button class="button is-small" type="submit">Rebuild the docs</button>
+        </form>
+        {% endif %}
+
+        {% if builds %}
+        <table class="table is-fullwidth is-narrow is-size-7">
+            <thead>
+                <tr><th>Version</th><th>Status</th><th>Queued</th><th>Finished</th><th></th></tr>
+            </thead>
+            <tbody>
+                {% for build in builds %}
+                <tr{% if build == selected %} class="is-selected"{% endif %}>
+                    <td>{{ build.release.version }}</td>
+                    <td>{% include "docs/build_status.html" %}</td>
+                    <td>{{ build.created_at|timesince }} ago</td>
+                    <td>{% if build.finished_at %}{{ build.finished_at|timesince }} ago{% endif %}</td>
+                    <td>{% if build != selected %}<a href="?build={{ build.pk }}">Log</a>{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+            <p class="has-text-grey">No builds yet.</p>
+        {% endif %}
+
+        {% if selected %}
+        <p class="has-text-weight-bold mt-5 mb-2">Log of {{ selected.release.version }} ({{ selected.get_status_display|lower }})</p>
+        {% if selected.error %}<div class="notification is-danger is-light">{{ selected.error }}</div>{% endif %}
+        {% if selected.sclang_mismatch %}
+        <div class="notification is-warning is-light">
+            Built with SuperCollider {{ selected.sclang_version }}, which {{ selected.release.version }} doesn't list as supported ({{ selected.release.sclang }}).
+        </div>
+        {% endif %}
+        <pre class="is-size-7">{{ selected.log|default:"(empty)" }}</pre>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

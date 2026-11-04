@@ -2,9 +2,10 @@
 `docs`, run by its own worker one at a time:
 
 1. skip the version if it isn't the package's current one anymore
-2. install: `magnet install` of the version in a temporary project, with network but
-   without sclang, so a `sclang` requirement the builder doesn't meet doesn't stop it
-   (the build gets `sclang_mismatch` instead)
+2. install: `magnet install --no-binaries` of the version in a temporary project, with
+   network but without sclang, so a `sclang` requirement the builder doesn't meet
+   doesn't stop it (the build gets `sclang_mismatch` instead), and without the binaries
+   of leptons, which docs don't need
 3. render: docs_builder/render.scd, without network, the packages read-only
 4. post-process the output (`docs.rewrite`): links by owner, the magnet bar
 5. publish it (`docs.publish`); a failed build keeps the previous docs
@@ -12,22 +13,28 @@
 
 import json
 import logging
+import re
 import shutil
 import traceback
 from collections.abc import Iterable
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser, User
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.tasks import task
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.translation import gettext as _
 
 from docs import publish, rewrite
 from docs.models import DocBuild
 from docs.runner import Container, Mount, Runner, get_runner
+from docs.status import latest_build
 from packages.classes import current_release
 from packages.models import Project, Release
 from packages.validators import version_req_matches
@@ -43,6 +50,9 @@ RENDER_SCRIPT = "/opt/magnet/render.scd"
 # a PATH without sclang, so `magnet install` resolves without a target sclang
 INSTALL_PATH = "/usr/bin:/bin"
 DOCMAP = "docmap.json"
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# how often owners may rebuild the docs of their package by hand
+REBUILD_INTERVAL = timedelta(minutes=10)
 
 
 def request_build(release: Release) -> DocBuild | None:
@@ -80,12 +90,7 @@ def update_docs(project: Project) -> None:
         name = project.normalized_name
         transaction.on_commit(lambda: publish.unpublish(name))
         return
-    latest = (
-        DocBuild.objects.filter(release__project=project)
-        .exclude(status=DocBuild.Status.skipped)
-        .order_by("-created_at", "-pk")
-        .first()
-    )
+    latest = latest_build(project)
     if latest is not None and latest.release_id == current.pk:
         # built docs are gone if no version was left meanwhile (yank, un-yank)
         built = latest.status == DocBuild.Status.built
@@ -99,6 +104,30 @@ def rebuild(project: Project) -> DocBuild | None:
     the package has none or builds are off."""
     current = current_release(project)
     return request_build(current) if current is not None else None
+
+
+def owner_rebuild(user: User | AnonymousUser, project: Project) -> DocBuild:
+    """`rebuild` for an owner of the package (the docs page): not while a build is
+    queued or running, and at most once per `REBUILD_INTERVAL`."""
+    if not project.can_manage(user):
+        raise PermissionDenied
+    if not settings.MAGNET_DOCS_BUILDS:
+        raise ValidationError(_("Docs builds are off."))
+    latest = latest_build(project)
+    if latest is not None:
+        if latest.status in (DocBuild.Status.queued, DocBuild.Status.building):
+            raise ValidationError(_("A build is queued or running already."))
+        if latest.created_at > timezone.now() - REBUILD_INTERVAL:
+            raise ValidationError(
+                _(
+                    "The last build is less than %(minutes)d minutes old, try again later."
+                )
+                % {"minutes": int(REBUILD_INTERVAL.total_seconds() // 60)}
+            )
+    build = rebuild(project)
+    if build is None:
+        raise ValidationError(_("The package has no current version."))
+    return build
 
 
 @task(queue_name="docs")
@@ -172,7 +201,8 @@ def _build(build: DocBuild, work: Path, log: list[str]) -> str | None:
         env["MAGNET_GIT_INDEX_URL"] = settings.MAGNET_DOCS_GIT_INDEX_URL
     install = Container(
         name=f"magnet-docs-{build.pk}-install",
-        command=[MAGNET, "install"],
+        # docs need no binaries, and without sclang a lepton's would need a target
+        command=[MAGNET, "install", "--no-binaries"],
         mounts=[Mount(work, "/work")],
         env=env,
         network=settings.MAGNET_DOCS_INSTALL_NETWORK or None,
@@ -259,7 +289,8 @@ def _run(runner: Runner, container: Container, step: str, log: list[str]) -> str
     except OSError as exception:
         log.append(f"{exception}\n")
         return f"the {step} container could not be started: {exception}"
-    log.append(result.output)
+    # the CLI colours its log
+    log.append(ANSI_RE.sub("", result.output))
     if result.timed_out:
         return f"{step} timed out after {settings.MAGNET_DOCS_TIMEOUT} seconds"
     if result.returncode != 0:

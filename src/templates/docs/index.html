@@ -13,7 +13,8 @@
   <h1>{{ name }} {{ version }}</h1>
   {% if summary %}<p>{{ summary }}</p>{% endif %}
   {% for folder, documents in groups %}
-    <h2>{{ folder }}</h2>
+    {# documents right in HelpSource/ have no folder #}
+    {% if folder %}<h2>{{ folder }}</h2>{% endif %}
     <ul>
       {% for document in documents %}
         <li><a href="{{ document.path }}.html">{{ document.title }}</a>{% if document.summary %}: {{ document.summary }}{% endif %}</li>
