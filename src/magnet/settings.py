@@ -168,7 +168,9 @@ LOGIN_URL = "/accounts/login/"
 LOGOUT_URL = "/accounts/logout/"
 
 # allauth settings
-ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]
+# the username is the public name (profile, packages), login is by email
+ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
+ACCOUNT_FORMS = {"signup": "users.forms.SignupForm"}
 ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_EMAIL_SUBJECT_PREFIX = "[magnet] "

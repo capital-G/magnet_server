@@ -11,7 +11,8 @@ class UserFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = User
 
-    username = factory.LazyAttribute(lambda _: fake.user_name())
+    # valid for `users.validators.validate_username` (faker's may contain dots)
+    username = factory.Sequence(lambda n: f"user{n}")
     email = factory.LazyAttribute(lambda _: fake.email())
     # hashed when built; a post-generation `set_password` wasn't saved
     password = factory.django.Password("password")
