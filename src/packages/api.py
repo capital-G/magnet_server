@@ -16,6 +16,7 @@ import tempfile
 
 from django.conf import settings
 from django.core.files import File
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -59,6 +60,17 @@ class BearerTokenAuthentication(OAuth2Authentication):
 
     def authenticate(self, request):
         return super().authenticate(request._request)
+
+
+class BearerTokenScheme(OpenApiAuthenticationExtension):
+    """`BearerTokenAuthentication` in the schema: an access token of the OAuth2
+    application (`magnet login`, CI tokens) in the `Authorization` header."""
+
+    target_class = BearerTokenAuthentication
+    name = "bearer"
+
+    def get_security_definition(self, auto_schema):
+        return {"type": "http", "scheme": "bearer"}
 
 
 class HasPublishScope(BasePermission):

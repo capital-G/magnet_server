@@ -88,6 +88,7 @@ Variable | Default | Comment
 `MAGNET_DOWNLOAD_BASE_URL` | `http://localhost:8000/` | base URL of the `dl` template and of `http` (`<base>index/`) in the index `config.json`
 `MAGNET_API_BASE_URL` | `http://localhost:8000/` | `api` in the index `config.json`, where the CLI logs in and publishes
 `MAGNET_OAUTH_REDIRECT_URIS` | `http://localhost:8000/users/display-token http://127.0.0.1:8000/users/display-token` | redirect URIs of the CLI's OAuth application (applied by a migration)
+`MAGNET_LEGAL_NAME`, `MAGNET_LEGAL_EMAIL`, `MAGNET_LEGAL_HOSTING` | none, `mail@supercollider.online`, none | operator, contact and hosting provider on `/legal` (legal notice, privacy policy)
 `MAGNET_DOCS_BUILDS` | off | `1` enables docs builds (on in the docker stack)
 `MAGNET_DOCS_RUNNER` | `podman` | CLI which starts the build containers, e.g. `docker` against podman's socket (`DOCKER_HOST`)
 `MAGNET_DOCS_IMAGE` | `magnet-docs-builder:sc3.14.1` | builder image (`make docs-builder`), its SuperCollider in `MAGNET_DOCS_SCLANG_VERSION`

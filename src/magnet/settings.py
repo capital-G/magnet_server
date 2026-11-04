@@ -283,6 +283,12 @@ MAGNET_DOCS_MEMORY = os.environ.get("MAGNET_DOCS_MEMORY", "2g")
 MAGNET_DOCS_PIDS_LIMIT = int(os.environ.get("MAGNET_DOCS_PIDS_LIMIT", "256"))
 MAGNET_DOCS_CPUS = os.environ.get("MAGNET_DOCS_CPUS", "")
 
+# The legal notice and privacy policy (`/legal`): who runs magnet, how to reach them,
+# and the hosting provider of the server (not named if empty).
+MAGNET_LEGAL_NAME = os.environ.get("MAGNET_LEGAL_NAME", "")
+MAGNET_LEGAL_EMAIL = os.environ.get("MAGNET_LEGAL_EMAIL", "mail@supercollider.online")
+MAGNET_LEGAL_HOSTING = os.environ.get("MAGNET_LEGAL_HOSTING", "")
+
 # Redirect URIs of the CLI's OAuth application (space-separated), set by the data
 # migration `users/0002`. `magnet login --no-browser` redirects to
 # `<api url>/users/display-token`; the loopback URI of `magnet login` is added by

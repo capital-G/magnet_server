@@ -27,7 +27,7 @@ from oauth2_provider import urls as oauth2_urls
 from rest_framework_nested import routers
 
 from docs.views import serve_docs
-from magnet.views import ApiNotFoundView, VersionApiView
+from magnet.views import ApiNotFoundView, VersionApiView, legal_view
 from packages.api import ArtifactView, FinaliseView, VersionsView, VersionView
 from packages.classes_api import (
     ClassCheckView,
@@ -80,6 +80,7 @@ urlpatterns = [
     # after all API routes: JSON instead of HTML for unknown API paths
     re_path(r"^api/", ApiNotFoundView.as_view()),
     path("admin/", admin.site.urls),
+    path("legal", legal_view, name="legal"),
     path("accounts/", include("allauth.urls")),
     path("users/", include("users.urls")),
     path("", include("docs.urls")),

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Legal notice & privacy - magnet{% endblock %}
+
+{% block content %}
+<section class="section">
+    <div class="container content" style="max-width: 50rem">
+        <h1 class="title">Legal notice</h1>
+        <p>
+            magnet is a non-commercial project for the SuperCollider community{% if name %}, run by {{ name }}{% endif %}.
+            Contact: <a href="mailto:{{ email }}">{{ email }}</a>
+        </p>
+
+        <h1 class="title mt-6">Privacy policy</h1>
+        <p class="has-text-grey is-size-7">Last updated: 4 November 2026</p>
+
+        <h2 class="title is-5">Who is responsible</h2>
+        <p>
+            The data controller under the GDPR is the operator named above{% if not name %}, reachable at <a href="mailto:{{ email }}">{{ email }}</a>{% endif %}.
+            Write to this address for any question about your data.
+        </p>
+
+        <h2 class="title is-5">Visiting the website</h2>
+        <p>
+            When you open a page of {{ site_host }}, of the package docs ({{ docs_host }}) or download from the index,
+            the web server logs your IP address, the time, the requested address, the response and your browser's user agent.
+            These logs are only used to run the service and to keep it secure (Art. 6(1)(f) GDPR) and are deleted after 14 days at the latest.
+        </p>
+        <p>
+            The pages load nothing from other servers: no analytics, no tracking, no fonts or scripts from third parties.
+        </p>
+
+        <h2 class="title is-5">Cookies and local storage</h2>
+        <p>
+            The website only sets cookies that it needs to work: a session cookie once you log in, and a cookie that protects forms against forgery (CSRF).
+            The package docs remember the colour theme you choose in your browser's local storage; this never leaves your browser.
+        </p>
+
+        <h2 class="title is-5">Your account</h2>
+        <p>
+            To publish packages you create an account. We store your username, your email address and your password (only as a secure hash),
+            and what you add yourself: your profile text and website, your memberships in package teams and the access tokens you create
+            (also when the magnet command line tool logs in).
+            We need this to provide your account (Art. 6(1)(b) GDPR).
+            Your username, profile text and website are public; your email address is never shown to others.
+        </p>
+        <p>
+            We send you emails to confirm your address, to reset your password and when you are added to or removed from a package's team.
+            They are sent through the mail servers of OVH (OVH SAS, France).
+        </p>
+
+        <h2 class="title is-5">Published packages</h2>
+        <p>
+            Packages are public: their names, versions, files, metadata (such as summary, license and repository)
+            and the username of whoever published a version can be seen and downloaded by anyone.
+            Published versions are never replaced, since projects depend on them;
+            if you want a package or version of yours removed, write to us.
+        </p>
+
+        <h2 class="title is-5">Hosting</h2>
+        <p>
+            magnet runs on a server{% if hosting %} of {{ hosting }}{% endif %}.
+            Your data is not passed on to anyone else, unless we are legally required to.
+        </p>
+
+        <h2 class="title is-5">Your rights</h2>
+        <p>
+            You have the right to access your data, to have it corrected or deleted, to restrict or object to its processing,
+            and to receive it in a portable format. To delete your account, write to <a href="mailto:{{ email }}">{{ email }}</a>.
+            You can also complain to a data protection supervisory authority.
+        </p>
+    </div>
+</section>
+{% endblock %}

@@ -1,4 +1,8 @@
+from urllib.parse import urlsplit
+
 from django.conf import settings
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import render
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, permissions, serializers
 from rest_framework.response import Response
@@ -35,3 +39,18 @@ class ApiNotFoundView(APIView):
     def initial(self, request, *args, **kwargs):
         # before the method lookup, so every method gets the `404`
         raise exceptions.NotFound()
+
+
+def legal_view(request: HttpRequest) -> HttpResponse:
+    """The legal notice and privacy policy."""
+    return render(
+        request,
+        "legal.html",
+        {
+            "name": settings.MAGNET_LEGAL_NAME,
+            "email": settings.MAGNET_LEGAL_EMAIL,
+            "hosting": settings.MAGNET_LEGAL_HOSTING,
+            "site_host": urlsplit(settings.MAGNET_API_BASE_URL).hostname,
+            "docs_host": urlsplit(settings.MAGNET_DOCS_BASE_URL).hostname,
+        },
+    )
