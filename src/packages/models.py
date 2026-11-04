@@ -802,6 +802,10 @@ class ClassDefinition(models.Model):
     """A class or a class extension in a `.sc` file of a version's quark artifact
     (`packages.classes.extract_classes`)."""
 
+    # the page of the class in the published docs, set for the website by
+    # `docs.status.add_docs_urls` (not stored)
+    docs_url = ""
+
     release = models.ForeignKey(
         Release, on_delete=models.CASCADE, related_name="class_definitions"
     )

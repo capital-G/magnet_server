@@ -91,6 +91,7 @@ def test_a_build_installs_renders_and_publishes(
         "",
     )
     assert queued.log == "$ install\ninstall output\n$ render\nrender output\n"
+    assert queued.documents == ["Classes/Foo"]
     assert queued.started_at <= queued.finished_at
     assert page() == "<p>docs</p>"
     assert publish.published_dir("foo") == publish.build_dir("foo", queued.pk)

@@ -246,7 +246,9 @@ def _build(build: DocBuild, work: Path, log: list[str]) -> str | None:
     target = publish.build_dir(name, build.pk)
     shutil.rmtree(target, ignore_errors=True)
     try:
-        rewrite.postprocess(out, target, docmap, context(build, docmap))
+        build.documents = rewrite.postprocess(
+            out, target, docmap, context(build, docmap)
+        )
         publish.publish(name, target)
     except Exception:
         shutil.rmtree(target, ignore_errors=True)

@@ -137,6 +137,15 @@ def test_sc_menu_bar_points_to_the_sc_docs(rendered):
 
 
 @pytest.mark.django_db
+def test_postprocess_returns_the_published_documents(rendered):
+    target = publish.build_dir("docdemo", 1)
+
+    documents = postprocess(rendered, target, docmap(rendered), CONTEXT)
+
+    assert documents == ["Classes/DemoThing", "Guides/DemoGuide"]
+
+
+@pytest.mark.django_db
 def test_only_the_package_is_published(rendered):
     target = publish_docs(rendered)
 

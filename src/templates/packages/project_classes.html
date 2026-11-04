@@ -29,6 +29,7 @@
                                 <span class="has-text-grey is-family-monospace">: {{ definition.superclass|default:"Object" }}</span>
                             {% endif %}
                             <span class="has-text-grey is-size-7 ml-1">line {{ definition.line }}</span>
+                            {% if definition.docs_url %}<a class="is-size-7 ml-1" href="{{ definition.docs_url }}">docs</a>{% endif %}
                             {% with methods=definition.methods.all %}
                                 {% if methods %}
                                     <ul class="is-family-monospace is-size-7 mt-1">

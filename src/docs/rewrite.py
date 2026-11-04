@@ -60,9 +60,10 @@ class Context:
 
 def postprocess(
     rendered: Path, target: Path, docmap: dict[str, Any], context: Context
-) -> None:
+) -> list[str]:
     """Writes the docs to publish into `target` (which doesn't exist yet) from the
-    output of render.scd in `rendered`; shares the static files next to it."""
+    output of render.scd in `rendered`; shares the static files next to it. Returns
+    the published documents (paths without `.html`)."""
     documents: dict[str, dict[str, Any]] = docmap["documents"]
     # documents that failed to render are missing
     pages = {
@@ -84,6 +85,7 @@ def postprocess(
         (target / f"{path}.html").parent.mkdir(parents=True, exist_ok=True)
         (target / f"{path}.html").write_text(rewriter.page(html, f"{path}.html"))
     (target / "index.html").write_text(index_page(documents, pages, context))
+    return sorted(pages)
 
 
 def share_static(rendered: Path, folder: Path) -> None:

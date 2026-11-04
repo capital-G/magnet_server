@@ -21,7 +21,7 @@ from rest_framework import status, viewsets
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
-from docs.status import docs_status
+from docs.status import add_docs_urls, docs_status
 from git_db.mirror import mirror_root
 from packages.classes import class_files, conflicts_by_package, search
 from packages.deletion import gone_marker
@@ -139,6 +139,7 @@ class ProjectDetail(DetailView):
         )
         if release is not None:
             context["class_files"] = class_files(release)
+            add_docs_urls(d for f in context["class_files"] for d in f.definitions)
             if self.can_publish:
                 context["class_file_errors"] = list(release.class_file_errors.all())
             # conflicts are about the version people install (`current_release`)
@@ -153,10 +154,14 @@ def class_search_view(request) -> HttpResponse:
     requests get only the `results` partial."""
     query = request.GET.get("q", "").strip()
     template = "packages/class_search.html"
+    results = search(query)
+    add_docs_urls(
+        [*results.classes, *(method.class_definition for method in results.methods)]
+    )
     return render(
         request,
         f"{template}#results" if request.htmx else template,
-        {"query": query, "results": search(query)},
+        {"query": query, "results": results},
     )
 
 

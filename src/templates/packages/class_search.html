@@ -38,7 +38,10 @@
                             <tbody>
                                 {% for definition in results.classes %}
                                     <tr>
-                                        <td class="is-family-monospace">{% if definition.is_extension %}+ {% endif %}{{ definition.name }}</td>
+                                        <td class="is-family-monospace">
+                                            {% if definition.is_extension %}+ {% endif %}{{ definition.name }}
+                                            {% if definition.docs_url %}<a class="is-size-7 ml-1" href="{{ definition.docs_url }}">docs</a>{% endif %}
+                                        </td>
                                         <td>
                                             {% if definition.is_extension %}<span class="tag is-light">extension</span>{% else %}<span class="tag is-link is-light">class</span>{% endif %}
                                         </td>
@@ -59,7 +62,11 @@
                                 {% for method in results.methods %}
                                     {% with definition=method.class_definition %}
                                         <tr>
-                                            <td class="is-family-monospace">{{ definition.name }}:{% if method.is_class_method %}*{% else %}-{% endif %}{{ method.name }}</td>
+                                            <td class="is-family-monospace">
+                                                {{ definition.name }}:{% if method.is_class_method %}*{% else %}-{% endif %}{{ method.name }}
+                                                {# SCDoc's anchors of methods: #*name, #-name #}
+                                                {% if definition.docs_url %}<a class="is-size-7 ml-1" href="{{ definition.docs_url }}#{% if method.is_class_method %}*{% else %}-{% endif %}{{ method.name }}">docs</a>{% endif %}
+                                            </td>
                                             <td>
                                                 {% if definition.is_extension %}<span class="tag is-light">extension</span>{% else %}<span class="tag is-link is-light">class</span>{% endif %}
                                             </td>

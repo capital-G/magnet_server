@@ -32,6 +32,8 @@ class DocBuild(models.Model):
     error = models.CharField(max_length=255, blank=True)
     # output of the build containers, shortened in the middle (`LOG_LIMIT`)
     log = models.TextField(blank=True)
+    # the documents a built build published, e.g. ["Classes/Foo", "Guides/Intro"]
+    documents = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ("-created_at",)
