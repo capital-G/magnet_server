@@ -5,7 +5,8 @@
 #   http://localhost:8080/index/…  static HTTP mirror of the index (nginx)
 #   http://localhost:8082/<name>/  the docs of the packages (nginx)
 #   git://localhost:9418/magnet_index.git   the index (git daemon)
-#   http://localhost:8081          the index in gitweb
+#   http://localhost:8081          the index in gitweb, and for the CLI over HTTP:
+#                                  http://localhost:8081/magnet_index.git
 #   (worker)                       background tasks, e.g. class extraction
 #   (docs_worker)                  docs builds, needs `make docs-builder`
 

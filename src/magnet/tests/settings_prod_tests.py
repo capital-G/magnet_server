@@ -55,6 +55,6 @@ def test_hosts_and_mail_come_from_the_environment():
         "ssl0.ovh.net",
         465,
         True,
-        "magnet <mail@supercollider.online>",
+        "magnet.supercollider.online <mail@supercollider.online>",
         False,
     ]

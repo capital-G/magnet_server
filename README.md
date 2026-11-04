@@ -23,7 +23,7 @@ nginx also serves a static HTTP mirror of the index (`/index/`: `config.json`, `
 | `nginx`      | <http://localhost:8080/dl/…>               | artifact downloads                    |
 | `nginx`      | <http://localhost:8080/index/…>            | static HTTP mirror of the index       |
 | `git_daemon` | `git://localhost:9418/magnet_index.git`    | the index                             |
-| `git_web`    | <http://localhost:8081>                    | the index in gitweb                   |
+| `git_web`    | <http://localhost:8081>                    | the index in gitweb, and over HTTP    |
 | `nginx`      | <http://localhost:8082/<name>/>            | the docs of the packages              |
 | `database`   | `localhost:5432`                           | postgres                              |
 | `worker`     |                                            | background tasks (class extraction)   |
@@ -37,7 +37,7 @@ make seed        # publishes the CLI's fixture packages from ../magnet_cli/tests
 ```
 
 `make` uses `podman` if `docker` is no executable (e.g. only a shell alias), or pass `DOCKER=…`.
-Use the index with the CLI via `MAGNET_GIT_INDEX_URL=git://localhost:9418/magnet_index.git`.
+Use the index with the CLI via `MAGNET_GIT_INDEX_URL=git://localhost:9418/magnet_index.git`, or over HTTP (git's smart protocol, read-only, as in production behind TLS) via `http://localhost:8081/magnet_index.git`.
 Releases can also be published by hand:
 
 ```shell
