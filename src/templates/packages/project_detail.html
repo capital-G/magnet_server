@@ -32,7 +32,9 @@
     </div>
 </div>
 
-<div class="container mt-4" x-data="{ tab: 'description' }">
+{# the tab can be linked to, e.g. `#classes` from the class search #}
+<div class="container mt-4"
+     x-data="{ tab: ['versions', 'deps', 'assets', 'classes'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'description' }">
     <div class="tabs">
         <ul>
             <li :class="{ 'is-active': tab === 'description' }">

@@ -8,10 +8,12 @@ from pytest_django.asserts import assertContains, assertNotContains
 
 from git_db.db import GitDatabase, get_git_database
 from packages.classes import (
+    SearchResults,
     conflicts,
     conflicts_by_package,
     extract_classes,
     extract_classes_task,
+    search,
 )
 from packages.models import Asset, ClassDefinition, ClassFileError, Project
 from packages.services import create_draft, finalise
@@ -406,3 +408,86 @@ def test_classes_tab_folds_many_files(client):
 
     assert page.count('<details class="mb-3"') == 11
     assert '<details class="mb-3" open>' not in page
+
+
+@pytest.fixture
+def searchable():
+    """Packages with classes, extensions and methods named like `Pbind`."""
+    published(
+        "alpha",
+        ("Classes/Pbinder.sc", b"Pbinder { var <>pbind; *pbinds { } }"),
+        ("Classes/ext.sc", b"+ Object { pbind { } }"),
+    )
+    published("beta", ("Classes/PBIND.sc", b"PBIND { }"))
+    # not current: an older, a yanked and a draft version
+    published("gamma", ("Classes/Pbind.sc", b"Pbind { }"), version="0.9.0")
+    published("gamma", ("Classes/Other.sc", b"Other { }"), version="1.0.0")
+    published("delta", ("Classes/Pbind.sc", b"Pbind { }"), yanked=True)
+    published("epsilon", ("Classes/Pbind.sc", b"Pbind { }"), final=False)
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("searchable")
+def test_search_classes_and_methods():
+    results = search(" pbind ")
+
+    # exact matches (ignoring case) first, then by name
+    assert [
+        (c.name, c.is_extension, c.release.project.name) for c in results.classes
+    ] == [
+        ("PBIND", False, "beta"),
+        ("Pbinder", False, "alpha"),
+    ]
+    assert [
+        (m.class_definition.name, m.name, m.is_class_method) for m in results.methods
+    ] == [
+        ("Object", "pbind", False),
+        ("Pbinder", "pbind", False),
+        ("Pbinder", "pbind_", False),
+        ("Pbinder", "pbinds", True),
+    ]
+    assert not results.truncated
+    assert search("") == search("  ") == SearchResults([], [], False)
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("searchable")
+def test_search_is_limited(monkeypatch):
+    monkeypatch.setattr("packages.classes.SEARCH_LIMIT", 2)
+
+    results = search("p")
+
+    assert (len(results.classes), len(results.methods), results.truncated) == (
+        2,
+        2,
+        True,
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("searchable")
+def test_class_search_page(client):
+    url = reverse("class-search")
+
+    assertContains(client.get(reverse("home")), f'href="{url}"')
+    assertContains(client.get(url), 'name="q"')
+    page = client.get(url, {"q": "pbind"})
+    assertContains(
+        page, '<td class="is-family-monospace">Object:-pbind</td>', html=True
+    )
+    assertContains(
+        page, '<td class="is-family-monospace">Pbinder:*pbinds</td>', html=True
+    )
+    assertContains(page, f'href="{reverse("project-detail", args=["alpha"])}#classes"')
+    assertNotContains(page, "gamma")
+
+    partial = client.get(url, {"q": "zzz"}, headers={"HX-Request": "true"})
+    assertNotContains(partial, "<html")
+    assertContains(partial, "No class or method starting with <code>zzz</code>.")
+
+
+@pytest.mark.django_db
+def test_project_tabs_can_be_linked(client):
+    published("alpha", ("Classes/Foo.sc", b"Foo { }"))
+    page = client.get(reverse("project-detail", args=["alpha"]))
+    assertContains(page, "location.hash.slice(1)")

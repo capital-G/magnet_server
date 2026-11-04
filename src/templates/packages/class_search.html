@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Classes - magnet{% endblock %}
+{% block description %}Find the package that provides a SuperCollider class or method{% endblock %}
+
+{% block content %}
+<section class="section">
+    <div class="container">
+        <h1 class="title">Classes and methods</h1>
+        <p class="mb-5">
+            Find the package that provides a class or a method
+            or check whether a class name is taken before you publish.
+            Searches the newest version of each package.
+        </p>
+
+        <form method="get" class="mb-5">
+            <div class="field has-addons">
+                <div class="control is-expanded">
+                    <input class="input" type="search" name="q" value="{{ query }}" autofocus
+                           placeholder="Class or method, e.g. Pbind or asJSON" aria-label="Class or method"
+                           hx-get="{% url 'class-search' %}"
+                           hx-trigger="keyup changed delay:300ms"
+                           hx-target="#results"
+                           hx-include="[name='q']">
+                </div>
+                <div class="control">
+                    <button class="button is-link" type="submit">Search</button>
+                </div>
+            </div>
+        </form>
+
+        <div id="results">
+            {% partialdef results inline %}
+                {% if query %}
+                    {% if results.classes %}
+                        <h2 class="title is-5">Classes</h2>
+                        <table class="table is-fullwidth is-hoverable">
+                            <tbody>
+                                {% for definition in results.classes %}
+                                    <tr>
+                                        <td class="is-family-monospace">{% if definition.is_extension %}+ {% endif %}{{ definition.name }}</td>
+                                        <td>
+                                            {% if definition.is_extension %}<span class="tag is-light">extension</span>{% else %}<span class="tag is-link is-light">class</span>{% endif %}
+                                        </td>
+                                        <td>
+                                            <a href="{% url 'project-detail' definition.release.project.slug %}#classes">{{ definition.release.project.name }}</a>
+                                            <span class="has-text-grey">{{ definition.release.version }}</span>
+                                        </td>
+                                        <td class="has-text-grey is-size-7">{{ definition.path }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% endif %}
+                    {% if results.methods %}
+                        <h2 class="title is-5">Methods</h2>
+                        <table class="table is-fullwidth is-hoverable">
+                            <tbody>
+                                {% for method in results.methods %}
+                                    {% with definition=method.class_definition %}
+                                        <tr>
+                                            <td class="is-family-monospace">{{ definition.name }}:{% if method.is_class_method %}*{% else %}-{% endif %}{{ method.name }}</td>
+                                            <td>
+                                                {% if definition.is_extension %}<span class="tag is-light">extension</span>{% else %}<span class="tag is-link is-light">class</span>{% endif %}
+                                            </td>
+                                            <td>
+                                                <a href="{% url 'project-detail' definition.release.project.slug %}#classes">{{ definition.release.project.name }}</a>
+                                                <span class="has-text-grey">{{ definition.release.version }}</span>
+                                            </td>
+                                            <td class="has-text-grey is-size-7">{{ definition.path }}</td>
+                                        </tr>
+                                    {% endwith %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% endif %}
+                    {% if results.truncated %}
+                        <p class="has-text-grey">Only the first {{ results.classes|length }} classes and {{ results.methods|length }} methods are shown, try a longer name.</p>
+                    {% endif %}
+                    {% if not results.classes and not results.methods %}
+                        <p>No class or method starting with <code>{{ query }}</code>.</p>
+                    {% endif %}
+                {% endif %}
+            {% endpartialdef %}
+        </div>
+    </div>
+</section>
+{% endblock %}

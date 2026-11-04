@@ -22,7 +22,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from git_db.mirror import mirror_root
-from packages.classes import class_files, conflicts_by_package
+from packages.classes import class_files, conflicts_by_package, search
 from packages.deletion import gone_marker
 from packages.models import Asset, Project, ProjectMember, Release
 from packages.serializers import (
@@ -144,6 +144,18 @@ class ProjectDetail(DetailView):
             if current is not None and release.pk == current.pk:
                 context["name_conflicts"] = conflicts_by_package(release)
         return context
+
+
+def class_search_view(request) -> HttpResponse:
+    """Search the classes and methods of the packages' current versions; htmx
+    requests get only the `results` partial."""
+    query = request.GET.get("q", "").strip()
+    template = "packages/class_search.html"
+    return render(
+        request,
+        f"{template}#results" if request.htmx else template,
+        {"query": query, "results": search(query)},
+    )
 
 
 class AssetDetail(DetailView):

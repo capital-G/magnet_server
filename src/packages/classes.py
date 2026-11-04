@@ -2,9 +2,11 @@
 of its quark artifact (the files sclang compiles; leptons only ship binaries)."""
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from django.db import transaction
+from django.db.models import Case, IntegerField, Value, When
 from django.tasks import task
 from django.utils import timezone
 
@@ -219,3 +221,59 @@ def class_files(release: Release) -> list[ClassFile]:
             definition.path, ClassFile(definition.path, definition.platform, [])
         ).definitions.append(definition)
     return list(files.values())
+
+
+# results per kind (classes, methods) of `search`
+SEARCH_LIMIT = 50
+
+
+@dataclass
+class SearchResults:
+    classes: Sequence[ClassDefinition]
+    methods: Sequence[MethodDefinition]
+    # whether there were more than `SEARCH_LIMIT` of a kind
+    truncated: bool
+
+
+def search(query: str) -> SearchResults:
+    """Classes, extensions and methods of the packages' current versions whose name
+    starts with `query` (ignoring case), exact matches first; e.g. to find the
+    package that provides a missing class or method."""
+    query = query.strip()
+    if not query:
+        return SearchResults([], [], False)
+
+    def exact_first(field: str) -> Case:
+        return Case(
+            When(**{f"{field}__iexact": query}, then=Value(0)),
+            default=Value(1),
+            output_field=IntegerField(),
+        )
+
+    current = ClassDefinition.objects.current()
+    classes = list(
+        current.filter(name__istartswith=query)
+        .alias(exact=exact_first("name"))
+        .select_related("release__project")
+        .order_by("exact", "name", "is_extension", "release__project__normalized_name")[
+            : SEARCH_LIMIT + 1
+        ]
+    )
+    methods = list(
+        MethodDefinition.objects.filter(
+            class_definition__in=current, name__istartswith=query
+        )
+        .alias(exact=exact_first("name"))
+        .select_related("class_definition__release__project")
+        .order_by(
+            "exact",
+            "name",
+            "class_definition__name",
+            "class_definition__release__project__normalized_name",
+        )[: SEARCH_LIMIT + 1]
+    )
+    return SearchResults(
+        classes[:SEARCH_LIMIT],
+        methods[:SEARCH_LIMIT],
+        len(classes) > SEARCH_LIMIT or len(methods) > SEARCH_LIMIT,
+    )
