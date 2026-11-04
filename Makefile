@@ -33,4 +33,13 @@ seed:
 		-v "$(abspath $(CLI_FIXTURES)):/fixtures:ro" \
 		--entrypoint python server manage.py seed_cli_fixtures /fixtures
 
-.PHONY: lint test-mypy test-unit schema test up superuser seed
+# the image which builds the docs of a package (docs_builder/, docs_plan.md); compiles
+# SuperCollider and the CLI (../magnet_cli) once, a new SC_VERSION means a new tag
+SC_VERSION ?= 3.14.1
+MAGNET_CLI ?= ../magnet_cli
+
+docs-builder:
+	$(DOCKER) build -t magnet-docs-builder:sc$(SC_VERSION) --build-arg SC_VERSION=$(SC_VERSION) \
+		--build-context magnet_cli=$(abspath $(MAGNET_CLI)) docs_builder
+
+.PHONY: lint test-mypy test-unit schema test up superuser seed docs-builder

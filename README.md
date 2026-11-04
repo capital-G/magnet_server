@@ -52,6 +52,15 @@ docker compose exec server python manage.py create_token --user you@example.org 
 Then `magnet package && magnet publish` in a project publishes it (the CLI finds the server via `api` in the index's `config.json`, or `MAGNET_API_URL`).
 Uploads are limited to 50 MB (`MAGNET_MAX_UPLOAD_SIZE`); a proxy in front of Django needs the same limit, e.g. nginx `client_max_body_size 50m`.
 
+### Package docs
+
+`make docs-builder` builds the image `magnet-docs-builder:sc3.14.1` (`docs_builder/`): a headless SuperCollider and the magnet CLI, both compiled from source (SuperCollider takes a while, once).
+`scripts/build_docs.sh` builds the docs of one package with it, like the server will:
+
+```shell
+scripts/build_docs.sh redUniverse '{ legacy-quark = true }' /tmp/docs/reduniverse
+```
+
 The index and the artifacts live in the volumes `index` and `artifacts`; `docker compose down -v` resets everything.
 The index (and its HTTP mirror) can always be regenerated from the database with `python manage.py rebuild_index`.
 
