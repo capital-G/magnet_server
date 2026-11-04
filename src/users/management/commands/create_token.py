@@ -14,7 +14,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--user", required=True, help="email of the user")
         parser.add_argument(
-            "--days", type=int, default=90, help="days until it expires (default 90)"
+            "--days", type=int, default=365, help="days until it expires (default 365)"
         )
         parser.add_argument(
             "--scope",

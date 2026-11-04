@@ -27,9 +27,9 @@ class CiTokenForm(forms.Form):
     name = forms.CharField(max_length=100)
     days = forms.TypedChoiceField(
         label="Expires after",
-        choices=[(30, "30 days"), (90, "90 days"), (365, "365 days")],
+        choices=[(30, "30 days"), (90, "90 days"), (365, "1 year"), (730, "2 years")],
         coerce=int,
-        initial=90,
+        initial=365,
     )
 
 

@@ -66,6 +66,20 @@ def test_create_token(client):
 
 
 @pytest.mark.django_db
+def test_tokens_expire_after_a_year_by_default_and_up_to_two(client):
+    client.force_login(UserFactory.create())
+
+    page = client.get(reverse("tokens"))
+    assertContains(page, '<option value="365" selected>1 year</option>', html=True)
+    assertContains(page, '<option value="730">2 years</option>', html=True)
+
+    token = AccessToken.objects.get(token=shown_token(create(client, days=730)))
+    assert abs(token.expires - (timezone.now() + timedelta(days=730))) < timedelta(
+        minutes=1
+    )
+
+
+@pytest.mark.django_db
 def test_create_token_without_htmx(client):
     client.force_login(UserFactory.create())
     response = create(client, htmx=False)
@@ -87,7 +101,13 @@ def test_token_is_shown_only_once(client):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "data", [{"name": "", "days": 90}, {"name": "CI", "days": 7}, {"name": "x" * 101}]
+    "data",
+    [
+        {"name": "", "days": 90},
+        {"name": "CI", "days": 7},
+        {"name": "CI", "days": 731},
+        {"name": "x" * 101},
+    ],
 )
 def test_create_token_refusals(client, data):
     client.force_login(UserFactory.create())
