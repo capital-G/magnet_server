@@ -3,7 +3,9 @@
 import pytest
 from django.core.files.base import ContentFile
 from django.core.management import call_command
+from django.tasks import TaskResultStatus
 from django.urls import reverse
+from django_tasks_db.models import DBTaskResult
 from pytest_django.asserts import assertContains, assertNotContains
 
 from git_db.db import GitDatabase, get_git_database
@@ -20,6 +22,8 @@ from packages.services import create_draft, finalise
 from packages.tests.factories import AssetFactory, ReleaseFactory, tar_gz
 from packages.tests.services_tests import upload_quark
 from users.tests.factories import UserFactory
+
+DATABASE_BACKEND = "django_tasks_db.DatabaseBackend"
 
 
 @pytest.fixture
@@ -166,6 +170,31 @@ def test_finalising_extracts_the_classes(index, django_capture_on_commit_callbac
         finalise(user, release)
 
     assert len(callbacks) >= 1
+    assert [c[0] for c in classes(release)] == ["Foo"]
+
+
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_the_worker_extracts_the_classes(index, settings):
+    """With the database backend of docker/prod, `db_worker` runs the task (the
+    worker closes connections, so not inside a test transaction; serialized
+    rollback keeps the reserved names of the data migration for later tests)."""
+    settings.TASKS = {
+        "default": {**settings.TASKS["default"], "BACKEND": DATABASE_BACKEND}
+    }
+    user = UserFactory.create()
+    release, _ = create_draft(user, "foo-bar", "1.0.0")
+    upload_quark(user, release)
+
+    finalise(user, release)
+
+    task = DBTaskResult.objects.get()
+    assert (task.queue_name, task.status) == ("default", TaskResultStatus.READY)
+    assert classes(release) == []
+
+    call_command("db_worker", batch=True, reload=False, startup_delay=False)
+
+    task.refresh_from_db()
+    assert task.status == TaskResultStatus.SUCCESSFUL
     assert [c[0] for c in classes(release)] == ["Foo"]
 
 

@@ -25,6 +25,7 @@ nginx also serves a static HTTP mirror of the index (`/index/`: `config.json`, `
 | `git_daemon` | `git://localhost:9418/magnet_index.git`    | the index                             |
 | `git_web`    | <http://localhost:8081>                    | the index in gitweb                   |
 | `database`   | `localhost:5432`                           | postgres                              |
+| `worker`     |                                            | background tasks (class extraction)   |
 
 ```shell
 make up          # docker compose up -d --build; creates the index on the first start
@@ -53,6 +54,9 @@ Uploads are limited to 50 MB (`MAGNET_MAX_UPLOAD_SIZE`); a proxy in front of Dja
 
 The index and the artifacts live in the volumes `index` and `artifacts`; `docker compose down -v` resets everything.
 The index (and its HTTP mirror) can always be regenerated from the database with `python manage.py rebuild_index`.
+
+Background tasks (`django.tasks`) go to the database; `worker` runs those of the queue `default` (`manage.py db_worker`), its log shows each task.
+Finished tasks stay in the table (admin: "Tasks Database Backend › Task Results"); `python manage.py prune_db_task_results` deletes old ones (see `--help`), in production e.g. from a timer.
 
 Without docker, `cd src && DJANGO_SETTINGS_MODULE=magnet.settings_local uv run manage.py runserver` serves the
 artifacts itself under `/dl/` and the index mirror under `/index/`, the index is a bare repository at `~/git/magnet/magnet_index.git`

@@ -48,6 +48,9 @@ INSTALLED_APPS = [
     "allauth.account",
     "django_htmx",
     "markdownify.apps.MarkdownifyConfig",
+    # the task table of the worker backend (docker/prod settings), installed
+    # everywhere so all environments have the same migrations
+    "django_tasks_db",
     "packages.apps.PackagesConfig",
     "users.apps.UsersConfig",
 ]
@@ -168,9 +171,16 @@ LOGIN_URL = "/accounts/login/"
 LOGOUT_URL = "/accounts/logout/"
 
 # Background tasks (`django.tasks`), e.g. `packages.classes.extract_classes_task`.
-# Immediate: they run inline (after the commit that enqueues them). A worker backend
-# (e.g. the django-tasks package's DatabaseBackend) can replace it without code changes.
-TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
+# Immediate: they run inline (after the commit that enqueues them), for tests and
+# runserver. Docker/prod swap in the database backend (`django_tasks_db`), whose
+# `manage.py db_worker --queue-name <queue>` runs them: "default" (class extraction
+# etc.) and "docs" (the long doc builds, a worker of their own).
+TASKS = {
+    "default": {
+        "BACKEND": "django.tasks.backends.immediate.ImmediateBackend",
+        "QUEUES": ["default", "docs"],
+    }
+}
 
 # allauth settings
 # the username is the public name (profile, packages), login is by email

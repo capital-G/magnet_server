@@ -36,3 +36,6 @@ STORAGES = {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
+
+# tasks go to the database, the compose service `worker` runs them
+TASKS = {"default": {**TASKS["default"], "BACKEND": "django_tasks_db.DatabaseBackend"}}

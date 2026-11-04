@@ -5,6 +5,7 @@
 #   http://localhost:8080/index/…  static HTTP mirror of the index (nginx)
 #   git://localhost:9418/magnet_index.git   the index (git daemon)
 #   http://localhost:8081          the index in gitweb
+#   (worker)                       background tasks, e.g. class extraction
 
 volumes:
   db:
@@ -33,6 +34,26 @@ services:
       - artifacts:/srv/artifacts
     ports:
       - ${MAGNET_PORT:-8000}:8000
+    # healthy once the entrypoint has migrated and gunicorn answers
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8000/"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # runs the background tasks of the queue "default" (class extraction)
+  worker:
+    build: .
+    depends_on:
+      server:
+        condition: service_healthy
+    entrypoint: ["python", "manage.py", "db_worker", "--queue-name", "default", "--no-reload"]
+    env_file:
+      - .local.env
+    environment:
+      - MAGNET_ARTIFACTS_ROOT=/srv/artifacts
+    volumes:
+      - artifacts:/srv/artifacts:ro
 
   database:
     image: postgres:17-alpine

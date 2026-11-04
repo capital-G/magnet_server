@@ -97,8 +97,8 @@ def extract_classes(release: Release) -> None:
 
 @task
 def extract_classes_task(release_id: str) -> None:
-    """`extract_classes` as a task (`settings.TASKS`): inline today, later on a
-    worker. The release may be gone by then (a deleted draft can't be final, but a
+    """`extract_classes` as a task (`settings.TASKS`): inline in tests and
+    runserver, on the `worker` service in docker/prod. The release may be gone by then (a deleted draft can't be final, but a
     hard-deleted version can)."""
     release = Release.objects.filter(pk=release_id).first()
     if release is not None:

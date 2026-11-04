@@ -14,3 +14,6 @@ STORAGES = {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
+
+# tasks go to the database, `manage.py db_worker` runs them
+TASKS = {"default": {**TASKS["default"], "BACKEND": "django_tasks_db.DatabaseBackend"}}
