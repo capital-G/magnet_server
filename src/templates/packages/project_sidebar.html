@@ -10,12 +10,16 @@
         {{ release.license }}
     </p>
     {% endif %}
-    {% with owners=project.owners %}
-    <p class="is-size-7">
+    <p class="is-size-7{% if maintainers %} mb-2{% endif %}">
         <span class="has-text-grey">Owner{{ owners|length|pluralize }}</span><br>
-        {% for owner in owners %}{{ owner.username }}{% if not forloop.last %}, {% endif %}{% endfor %}
+        {% for user in owners %}<a href="{% url 'profile' user.username %}">{{ user.username }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
     </p>
-    {% endwith %}
+    {% if maintainers %}
+    <p class="is-size-7">
+        <span class="has-text-grey">Maintainer{{ maintainers|length|pluralize }}</span><br>
+        {% for user in maintainers %}<a href="{% url 'profile' user.username %}">{{ user.username }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
+    </p>
+    {% endif %}
     {% if can_publish %}
     <p class="is-size-7 mt-2">
         <a href="{% url 'team' project.slug %}">Team</a>

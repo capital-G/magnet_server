@@ -4,6 +4,7 @@
             <th>Version</th>
             <th>Kinds</th>
             <th>Released</th>
+            <th>Published by</th>
             <th>Notes</th>
         </tr>
     </thead>
@@ -47,6 +48,7 @@
                 {% endfor %}
             </td>
             <td class="has-text-grey is-size-7">{{ release.created|timesince }} ago</td>
+            <td class="is-size-7"><a href="{% url 'profile' release.owner.username %}">{{ release.owner.username }}</a></td>
             <td class="has-text-grey is-size-7">{{ release.release_note|truncatechars:80 }}</td>
         </tr>
         {% endfor %}

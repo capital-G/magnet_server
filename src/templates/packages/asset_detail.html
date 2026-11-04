@@ -52,7 +52,7 @@
                 </p>
                 <p class="is-size-7 mb-2">
                     <span class="has-text-grey">Uploader</span><br>
-                    {{ asset.uploader.username }}
+                    <a href="{% url 'profile' asset.uploader.username %}">{{ asset.uploader.username }}</a>
                 </p>
                 {% if asset.uploaded_via %}
                 <p class="is-size-7 mb-2">

@@ -22,6 +22,8 @@ RESERVED_USERNAMES = frozenset(
         "api",
         # the sentinel user of deleted accounts, see `packages.models`
         "deleted",
+        # routes below /users/ next to the profiles
+        "display-token",
         "dl",
         "help",
         "index",

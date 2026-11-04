@@ -1,11 +1,14 @@
 from django import forms
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
+from django.db.models import Prefetch, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views import View
 from django.views.decorators.http import require_POST
 
+from packages.models import Project, ProjectMember, Release
 from users.models import CiToken
 from users.oauth import create_ci_token
 
@@ -67,3 +70,27 @@ def revoke_token_view(request, pk: int) -> HttpResponse:
     # deletes the access token, and with it the name
     ci_token.access_token.revoke()
     return render_tokens(request, CiTokenForm())
+
+
+def profile_view(request, username: str) -> HttpResponse:
+    """The public page of a user: the packages they own or maintain. Packages with
+    only drafts are listed only for members of their team."""
+    user = get_object_or_404(
+        get_user_model(), username__iexact=username, is_active=True
+    )
+    visible = Q(project__in=Project.objects.public().values("pk"))
+    if request.user.is_authenticated:
+        visible |= Q(project__in=Project.objects.of_user(request.user).values("pk"))
+    memberships = (
+        ProjectMember.objects.filter(visible, user=user)
+        .select_related("project")
+        .prefetch_related(
+            Prefetch("project__releases", queryset=Release.objects.final())
+        )
+        .order_by("project__normalized_name")
+    )
+    return render(
+        request,
+        "users/profile.html",
+        {"profile_user": user, "memberships": memberships},
+    )

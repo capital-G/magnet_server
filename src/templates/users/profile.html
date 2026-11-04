@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}{{ profile_user.username }} - magnet{% endblock %}
+{% block description %}Packages of {{ profile_user.username }} on magnet{% endblock %}
+
+{% block content %}
+<div class="page-header py-5">
+    <div class="container">
+        <p class="is-size-3 has-text-weight-bold">{{ profile_user.username }}</p>
+        <p class="has-text-grey">Member since {{ profile_user.date_joined|date:"F Y" }}</p>
+    </div>
+</div>
+
+<section class="section pt-5">
+    <div class="container">
+        <p class="has-text-weight-bold mb-3">Packages</p>
+        <ul>
+            {% for membership in memberships %}
+                <li>
+                    {% include "packages/project_card.html" with project=membership.project role=membership.get_role_display %}
+                </li>
+            {% empty %}
+                <li class="has-text-grey">No packages yet.</li>
+            {% endfor %}
+        </ul>
+    </div>
+</section>
+{% endblock %}

@@ -82,7 +82,7 @@ class ProjectDetail(DetailView):
         if not self.can_publish:
             releases = releases.final()
         self.releases = list(
-            releases.prefetch_related(
+            releases.select_related("owner").prefetch_related(
                 "assets", "dependencies_from__dependency", "git_dependencies"
             )
         )
@@ -98,6 +98,13 @@ class ProjectDetail(DetailView):
         final = [release for release in self.releases if release.is_final]
         context["releases"] = self.releases
         context["can_publish"] = self.can_publish
+        members = list(self.object.members.select_related("user"))
+        context["owners"] = [
+            m.user for m in members if m.role == ProjectMember.Role.owner
+        ]
+        context["maintainers"] = [
+            m.user for m in members if m.role == ProjectMember.Role.maintainer
+        ]
         context["release"] = next(
             (r for r in self.releases if r.version == version),
             # the newest final release, or the newest draft if there is none

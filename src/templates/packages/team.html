@@ -64,7 +64,7 @@
                     {% for member in members %}
                         <tr>
                             <td>
-                                {{ member.user.username }}
+                                <a href="{% url 'profile' member.user.username %}">{{ member.user.username }}</a>
                                 {% if member.user == request.user %}<span class="tag is-light ml-1">you</span>{% endif %}
                             </td>
                             <td>
