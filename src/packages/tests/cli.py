@@ -24,6 +24,16 @@ def cli_has_artifact_kinds() -> bool:
     return "quark" in artifact.get("properties", {})
 
 
+@cache
+def cli_has_quark_mappings() -> bool:
+    """Whether the CLI's manifest schema has the `{ from, as }` entries of
+    `[artifact.quark] paths` (client step C6.16)."""
+    path = MAGNET_CLI / "schemes" / "magnet.v1.schema.json"
+    return (
+        path.is_file() and "pathMapping" in json.loads(path.read_text())["definitions"]
+    )
+
+
 def cli_publishes_artifact_kinds() -> bool:
     """Whether the debug build of the CLI uploads to the route with the artifact's
     kind (client step C8.6): its publish client has it, and the build is newer."""
@@ -50,6 +60,12 @@ def fixtures_have_kinds(fixtures: Path) -> bool:
 needs_cli_with_artifact_kinds = pytest.mark.skipif(
     not cli_has_artifact_kinds(),
     reason="needs ../magnet_cli with artifact kinds (client step C8.1)",
+)
+
+
+needs_cli_with_quark_mappings = pytest.mark.skipif(
+    not cli_has_quark_mappings(),
+    reason="needs ../magnet_cli with `{ from, as }` quark paths (client step C6.16)",
 )
 
 

@@ -11,7 +11,12 @@ from django.core.files.base import ContentFile
 
 from git_db.db import GIT_ENV
 from packages.archive import SCHEMA_PATH, inspect_artifact
-from packages.tests.cli import MAGNET, MAGNET_CLI, needs_cli_with_artifact_kinds
+from packages.tests.cli import (
+    MAGNET,
+    MAGNET_CLI,
+    needs_cli_with_artifact_kinds,
+    needs_cli_with_quark_mappings,
+)
 from packages.tests.factories import (
     LEPTON_MANIFEST,
     QUARK_MANIFEST,
@@ -165,6 +170,74 @@ def test_refused_files_are_listed():
         "Classes/3.txt (not selected by [artifact.quark] paths), "
         "Classes/4.txt (not selected by [artifact.quark] paths) and 2 more"
     ]
+
+
+MAPPING_MANIFEST = QUARK_MANIFEST.replace(
+    'paths = ["Classes/**.sc", "HelpSource/**/*"]',
+    'paths = [\n  "Classes/**.sc",\n  "HelpSource/**/*",\n'
+    '  { from = "external/faust/libraries", as = "./externals/faustlibs/" },\n'
+    '  { from = "LICENSE.txt", as = "Classes/LICENSE" },\n]',
+)
+
+
+def test_quark_paths_with_mappings():
+    # `{ from, as }` entries select their `as` and everything below it
+    data = quark(
+        ("externals/faustlibs/stdfaust.lib", b""),
+        ("externals/faustlibs/nested/more.lib", b""),
+        ("Classes/LICENSE", b""),
+        # `exclude` is matched against the path in the project by the CLI
+        ("externals/faustlibs/Classes/Private/x.lib", b""),
+        manifest=MAPPING_MANIFEST.replace(
+            '"Classes/Private/**"', '"externals/faustlibs/Classes/Private/**"'
+        ),
+    )
+
+    assert "externals/faustlibs/nested/more.lib" in inspect(data).files
+
+
+def test_files_outside_of_globs_and_mappings_are_refused():
+    data = quark(
+        ("externals/faustlibs/stdfaust.lib", b""),
+        ("externals/other.lib", b""),
+        ("externals/faustlibs2/x.lib", b""),
+        ("Classes/LICENSE.txt", b""),
+        ("externals/faustlibs/.hidden", b""),
+        manifest=MAPPING_MANIFEST,
+    )
+
+    with pytest.raises(ValidationError) as error:
+        inspect(data)
+
+    assert error.value.messages == [
+        "The archive contains files which the manifest doesn't select: "
+        "externals/other.lib (not selected by [artifact.quark] paths), "
+        "externals/faustlibs2/x.lib (not selected by [artifact.quark] paths), "
+        "Classes/LICENSE.txt (not selected by [artifact.quark] paths), "
+        "externals/faustlibs/.hidden (hidden files are never packaged)"
+    ]
+
+
+def test_mapping_to_the_package_root_selects_every_file():
+    manifest = QUARK_MANIFEST.replace(
+        'paths = ["Classes/**.sc", "HelpSource/**/*"]',
+        'paths = [{ from = "quark", as = "." }]',
+    )
+
+    assert "Foo.sc" in inspect(quark(("Foo.sc", b""), manifest=manifest)).files
+    with pytest.raises(ValidationError, match=r"dist/Foo.sc \(dist is never"):
+        inspect(quark(("dist/Foo.sc", b""), manifest=manifest))
+
+
+def test_mapping_outside_of_the_package_selects_nothing():
+    manifest = QUARK_MANIFEST.replace(
+        'paths = ["Classes/**.sc", "HelpSource/**/*"]',
+        'paths = ["Classes/**.sc", "HelpSource/**/*", '
+        '{ from = "a", as = "../x" }, { from = "b", as = "/x" }]',
+    )
+
+    with pytest.raises(ValidationError, match="x/a.sc"):
+        inspect(quark(("x/a.sc", b""), manifest=manifest))
 
 
 def test_gzip_bomb_is_refused(settings, tmp_path, monkeypatch):
@@ -484,6 +557,37 @@ def test_artifacts_of_the_real_cli(tmp_path):
         "README.md",
         "magnet.toml",
         "notes.txt",
+    ]
+
+
+@pytest.mark.skipif(not MAGNET.is_file(), reason="needs a debug build of ../magnet_cli")
+@needs_cli_with_quark_mappings
+def test_quark_with_mappings_of_the_real_cli(tmp_path):
+    write_project(
+        tmp_path,
+        {
+            "Classes/Foo.sc": "Foo {}\n",
+            "HelpSource/Classes/Foo.schelp": "title:: Foo\n",
+            "external/faust/libraries/stdfaust.lib": "// faust\n",
+            "external/faust/libraries/nested/more.lib": "// faust\n",
+            "external/faust/README.md": "not packaged\n",
+            "LICENSE.txt": "MIT\n",
+            "magnet.toml": MAPPING_MANIFEST.replace(
+                "\n[artifact]\n",
+                '\n[artifact]\nsource = { from = "paths", paths = ["**/*"] }\n',
+            ),
+        },
+    )
+
+    artifacts = magnet_package(tmp_path)
+
+    assert inspect(artifacts["foo-1.0.0-quark-any-any.tar.gz"]).files == [
+        "Classes/Foo.sc",
+        "Classes/LICENSE",
+        "HelpSource/Classes/Foo.schelp",
+        "externals/faustlibs/nested/more.lib",
+        "externals/faustlibs/stdfaust.lib",
+        "magnet.toml",
     ]
 
 

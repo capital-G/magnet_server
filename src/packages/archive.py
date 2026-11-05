@@ -258,6 +258,30 @@ def declared_kinds(manifest: dict[str, Any]) -> list[str]:
     return [kind for kind in RELEASE_KINDS if kind in artifact]
 
 
+def mapping_targets(paths: list[str | dict[str, str]]) -> list[str]:
+    """The `as` of the `{ from, as }` entries of `[artifact.quark] paths`, normalised
+    like the CLI's `collect.rs: relative_path` (`/`-separated, without `.` components;
+    `""` is the package root). Targets outside of the package are left out: the CLI
+    refuses them."""
+    targets = []
+    for path in paths:
+        if isinstance(path, str):
+            continue
+        parts = [part for part in path["as"].split("/") if part not in ("", ".")]
+        if path["as"].startswith("/") or ".." in parts:
+            continue
+        targets.append("/".join(parts))
+    return targets
+
+
+def mapped(path: str, targets: list[str]) -> bool:
+    """Whether `path` equals one of the mapping `targets` or lies below it."""
+    return any(
+        not target or path == target or path.startswith(f"{target}/")
+        for target in targets
+    )
+
+
 def refused_files(
     files: list[str], manifest: dict[str, Any], kind: str, abi: str, platform: str
 ) -> list[str]:
@@ -267,12 +291,15 @@ def refused_files(
     - for the source from git: a file git tracks, hidden ones included, but nothing
       in `.git/`, excluded or never packaged (the files can't be checked against git);
     - for the source from `paths` and the quark: selected by their `paths`, and neither
-      hidden, excluded nor never packaged;
+      hidden, excluded nor never packaged; a quark's `{ from, as }` entries select
+      their `as` and everything below it (`from` can't be checked, and `exclude` isn't
+      checked for these files: the CLI matches it against the path in the project);
     - for a lepton: a binary in `plugins/<platform>/<abi>/` (only their file names are
       left, so they aren't matched against the globs of `platform-paths`)."""
     artifact = manifest.get("artifact", {})
     from_git = False
     globs: list[str] = []
+    targets: list[str] = []
     globs_name = ""
     if kind == SOURCE_KIND:
         source = artifact.get("source", {})
@@ -286,7 +313,10 @@ def refused_files(
                 )
             )
     elif kind == "quark":
-        globs, globs_name = artifact["quark"]["paths"], "[artifact.quark] paths"
+        paths = artifact["quark"]["paths"]
+        globs = [path for path in paths if isinstance(path, str)]
+        targets = mapping_targets(paths)
+        globs_name = "[artifact.quark] paths"
     try:
         selected = GlobSet(globs)
         exclude = GlobSet(artifact.get("exclude", []))
@@ -309,6 +339,8 @@ def refused_files(
             refused.append(f"{path} (hidden files are never packaged)")
         elif parts[0] in NEVER_PACKAGED:
             refused.append(f"{path} ({parts[0]} is never packaged)")
+        elif mapped(path, targets):
+            continue
         elif exclude.matches(path):
             refused.append(f"{path} (matched by exclude)")
         elif not from_git and not selected.matches(path):

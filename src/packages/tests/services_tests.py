@@ -218,6 +218,31 @@ def test_quark_from_draft_to_final(index, user, alpha):
 
 
 @pytest.mark.django_db
+def test_quark_with_mapped_paths(index, user):
+    # `{ from, as }` entries of `[artifact.quark] paths` (client step C6.16)
+    toml = manifest().replace(
+        b'paths = ["Classes/**.sc"]',
+        b'paths = ["Classes/**.sc", { from = "external/faust", as = "faustlibs" }]',
+    )
+    release, _ = create_draft(user, "foo-bar", "1.0.0")
+    upload(
+        user,
+        release,
+        tar_gz(("Classes/Foo.sc", b"Foo {}\n"), ("magnet.toml", toml)),
+        kind="source",
+    )
+    files = [("Classes/Foo.sc", b"Foo {}\n"), ("magnet.toml", toml)]
+
+    with pytest.raises(ValidationError, match=r"faust/all.lib \(not selected"):
+        upload(user, release, tar_gz(*files, ("faust/all.lib", b"")))
+    upload(user, release, tar_gz(*files, ("faustlibs/all.lib", b"")))
+    release = finalise(user, release)
+
+    assert release.is_final
+    assert [line["kinds"] for line in index_lines(index, "foo-bar")] == [["quark"]]
+
+
+@pytest.mark.django_db
 def test_every_step_can_be_repeated(index, user):
     data = quark()
     release, _ = create_draft(user, "foo-bar", "1.0.0")
