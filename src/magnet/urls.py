@@ -27,7 +27,12 @@ from oauth2_provider import urls as oauth2_urls
 from rest_framework_nested import routers
 
 from docs.views import serve_docs
-from magnet.views import ApiNotFoundView, VersionApiView, legal_view
+from magnet.views import (
+    ApiNotFoundView,
+    VersionApiView,
+    legal_view,
+    manifest_schema_view,
+)
 from packages.api import ArtifactView, FinaliseView, VersionsView, VersionView
 from packages.classes_api import (
     ClassCheckView,
@@ -81,6 +86,11 @@ urlpatterns = [
     re_path(r"^api/", ApiNotFoundView.as_view()),
     path("admin/", admin.site.urls),
     path("legal", legal_view, name="legal"),
+    path(
+        "schemas/magnet.v1.schema.json",
+        manifest_schema_view,
+        name="manifest-schema",
+    ),
     path("accounts/", include("allauth.urls")),
     path("users/", include("users.urls")),
     path("", include("docs.urls")),

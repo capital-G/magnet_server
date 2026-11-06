@@ -3,11 +3,14 @@ from urllib.parse import urlsplit
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
+from django.views.decorators.http import require_safe
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, permissions, serializers
 from rest_framework.response import Response
 from rest_framework.serializers import Serializer
 from rest_framework.views import APIView
+
+from packages.archive import SCHEMA_PATH
 
 
 class MagnetServerVersion(Serializer):
@@ -39,6 +42,17 @@ class ApiNotFoundView(APIView):
     def initial(self, request, *args, **kwargs):
         # before the method lookup, so every method gets the `404`
         raise exceptions.NotFound()
+
+
+@require_safe
+def manifest_schema_view(request: HttpRequest) -> HttpResponse:
+    """The JSON schema of `magnet.toml` (vendored from the CLI, its `$id` is this URL).
+    `magnet init` references it via `#:schema`, so the TOML extensions of editors offer
+    completion and validation; any origin may fetch it, e.g. editors in the browser."""
+    response = HttpResponse(SCHEMA_PATH.read_bytes(), content_type="application/json")
+    response["Access-Control-Allow-Origin"] = "*"
+    response["Cache-Control"] = "public, max-age=3600"
+    return response
 
 
 def legal_view(request: HttpRequest) -> HttpResponse:
